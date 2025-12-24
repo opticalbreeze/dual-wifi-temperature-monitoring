@@ -1,0 +1,14 @@
+[Unit]
+Description=Access point and authentication server for Wi-Fi and Ethernet
+After=network.target
+ConditionFileNotEmpty=/etc/hostapd/hostapd.conf
+
+[Service]
+Type=forking
+PIDFile=/run/hostapd.pid
+ExecStart=/usr/sbin/hostapd -B -P /run/hostapd.pid /etc/hostapd/hostapd.conf
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

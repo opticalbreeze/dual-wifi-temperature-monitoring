@@ -1,0 +1,14 @@
+[Unit]
+Description=Temperature Data Server
+After=network.target
+
+[Service]
+Type=simple
+User=raspberry
+WorkingDirectory=/home/raspberry/temperature_server
+ExecStart=/home/raspberry/temperature_server/venv/bin/python /home/raspberry/temperature_server/server.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

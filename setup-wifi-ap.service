@@ -1,0 +1,12 @@
+[Unit]
+Description=Setup WiFi AP on boot
+After=network-pre.target
+Before=hostapd.service dnsmasq.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/setup_ap_auto.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
