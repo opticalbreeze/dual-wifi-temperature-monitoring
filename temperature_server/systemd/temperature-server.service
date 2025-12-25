@@ -1,0 +1,21 @@
+[Unit]
+Description=Temperature Server - Raspberry Pi
+Documentation=http://localhost:5000/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=raspberry
+WorkingDirectory=/home/raspberry/temperature_server
+Environment="PATH=/home/raspberry/temperature_server/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+Environment="VIRTUAL_ENV=/home/raspberry/temperature_server/venv"
+ExecStart=/home/raspberry/temperature_server/venv/bin/python3 /home/raspberry/temperature_server/run.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

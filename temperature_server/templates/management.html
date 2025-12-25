@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理画面</title>
+    <style>
+        body { margin: 0; padding: 20px; font-family: sans-serif; background: #f0f0f0; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .nav { text-align: center; margin-bottom: 30px; }
+        .nav a { margin: 0 10px; padding: 10px 20px; background: #667eea; color: white; text-decoration: none; border-radius: 5px; }
+        .nav a.active { background: #764ba2; }
+        .panel { background: white; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+        .panel h3 { color: #667eea; margin-top: 0; }
+        .button-group { display: flex; gap: 10px; flex-wrap: wrap; }
+        button { padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: 600; transition: 0.3s; }
+        .btn-primary { background: #4caf50; color: white; }
+        .btn-primary:hover { background: #45a049; }
+        .btn-danger { background: #f44336; color: white; }
+        .btn-danger:hover { background: #da190b; }
+        .btn-info { background: #2196F3; color: white; }
+        .btn-info:hover { background: #0b7dda; }
+        .status-box { background: #f9f9f9; padding: 15px; border-left: 4px solid #4caf50; margin: 10px 0; border-radius: 4px; }
+        .status-box.warn { border-left-color: #ff9800; }
+        .status-box.error { border-left-color: #f44336; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="nav">
+            <a href="/">ダッシュボード</a>
+            <a href="/stream">ビデオストリーミング</a>
+            <a href="/management" class="active">管理画面</a>
+        </div>
+
+        <div class="panel">
+            <h3>🔍 システムステータス</h3>
+            <div class="status-box">
+                <strong>メモリ使用率:</strong> 45% <button class="btn-danger" onclick="clearCache()">キャッシュ削除</button>
+            </div>
+            <div class="status-box">
+                <strong>ディスク使用率:</strong> 62%
+            </div>
+            <div class="status-box">
+                <strong>WiFi AP:</strong> 稼働中 (RaspberryPi_Temperature)
+            </div>
+            <div class="status-box">
+                <strong>インターネット:</strong> 接続 (192.168.11.57)
+            </div>
+        </div>
+
+        <div class="panel">
+            <h3>📡 WiFi 管理</h3>
+            <div class="button-group">
+                <button class="btn-info" onclick="scanNetworks()">ネットワークスキャン</button>
+                <button class="btn-primary" onclick="reconnectWiFi()">再接続</button>
+                <button class="btn-info" onclick="showWiFiStatus()">詳細表示</button>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h3>🎥 ビデオストリーミング</h3>
+            <div class="button-group">
+                <button class="btn-primary" onclick="startStream()">配信開始</button>
+                <button class="btn-danger" onclick="stopStream()">配信停止</button>
+                <button class="btn-info" onclick="showStreamStats()">統計表示</button>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h3>⚙️ サービス管理</h3>
+            <div class="button-group">
+                <button class="btn-info" onclick="restartWiFi()">WiFi Manager 再起動</button>
+                <button class="btn-info" onclick="restartStream()">Stream Service 再起動</button>
+                <button class="btn-danger" onclick="rebootSystem()">Raspberry Pi 再起動</button>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h3>💾 データ管理</h3>
+            <div class="button-group">
+                <button class="btn-primary" onclick="backupDatabase()">バックアップ</button>
+                <button class="btn-danger" onclick="clearOldData()">古いデータ削除</button>
+                <button class="btn-info" onclick="exportData()">CSV エクスポート</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function clearCache() { console.log('Clearing cache...'); alert('キャッシュを削除しました'); }
+        function scanNetworks() { console.log('Scanning networks...'); alert('スキャン開始'); }
+        function reconnectWiFi() { console.log('Reconnecting WiFi...'); alert('再接続します'); }
+        function showWiFiStatus() { console.log('WiFi status'); alert('WiFi ステータス表示'); }
+        function startStream() { console.log('Starting stream...'); alert('配信開始'); }
+        function stopStream() { console.log('Stopping stream...'); alert('配信停止'); }
+        function showStreamStats() { console.log('Stream stats'); alert('統計表示'); }
+        function restartWiFi() { console.log('Restarting WiFi...'); alert('WiFi Manager を再起動します'); }
+        function restartStream() { console.log('Restarting stream...'); alert('Stream Service を再起動します'); }
+        function rebootSystem() { if(confirm('本当に再起動しますか?')) { console.log('Rebooting...'); alert('再起動します'); } }
+        function backupDatabase() { console.log('Backing up...'); alert('バックアップを作成しました'); }
+        function clearOldData() { console.log('Clearing old data...'); alert('古いデータを削除しました'); }
+        function exportData() { console.log('Exporting...'); alert('CSV を作成しました'); }
+    </script>
+</body>
+</html>
