@@ -1,0 +1,15 @@
+[Unit]
+Description=Setup wlan1 for AP mode (temperature_server)
+After=network.target NetworkManager.service
+Before=hostapd.service temperature-server.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'nmcli device set wlan1 managed no 2>/dev/null || true; ip addr flush dev wlan1 2>/dev/null || true; ip addr add 192.168.4.1/24 dev wlan1; ip link set wlan1 up'
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+
