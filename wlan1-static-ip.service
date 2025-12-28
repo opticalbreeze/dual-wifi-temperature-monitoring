@@ -1,10 +1,10 @@
 [Unit]
 Description=Setup wlan1 IP Address for AP Mode
-After=network.target hostapd.service
+After=network.target hostapd.service dnsmasq.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/sbin/ip addr add 192.168.4.1/24 dev wlan1
+ExecStart=/bin/bash -c 'ip addr show wlan1 | grep -q "192.168.4.1" || ip addr add 192.168.4.1/24 dev wlan1'
 ExecStart=/usr/sbin/ip link set wlan1 up
 RemainAfterExit=yes
 
