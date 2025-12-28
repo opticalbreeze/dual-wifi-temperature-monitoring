@@ -54,6 +54,47 @@ def init_database():
         )
     """)
     
+    # 温度アラートテーブル
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS temperature_alerts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sensor_id TEXT NOT NULL,
+            sensor_name TEXT,
+            temperature REAL NOT NULL,
+            min_threshold REAL NOT NULL,
+            max_threshold REAL NOT NULL,
+            alert_type TEXT NOT NULL,
+            message TEXT,
+            acknowledged INTEGER DEFAULT 0,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # アラートインデックス作成
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_alert_sensor_timestamp 
+        ON temperature_alerts(sensor_id, timestamp DESC)
+    """)
+    
+    # 設定テーブル（温度範囲など）
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            description TEXT,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # デフォルト設定を挿入（存在しない場合のみ）
+    cursor.execute("""
+        INSERT OR IGNORE INTO settings (key, value, description) 
+        VALUES 
+        ('temperature_min', '5.0', '最低温度閾値（℃）'),
+        ('temperature_max', '40.0', '最高温度閾値（℃）'),
+        ('alert_enabled', '1', 'アラート機能有効/無効（1=有効, 0=無効）')
+    """)
+    
     conn.commit()
     conn.close()
 

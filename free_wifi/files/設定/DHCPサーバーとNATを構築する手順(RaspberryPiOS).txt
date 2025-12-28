@@ -1,0 +1,159 @@
+_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
+_/
+_/  DHCPサーバーとNATを構築する手順
+_/
+_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/_/
+
+
+-------------------------------------------------
+▼ パッケージのインストール
+-------------------------------------------------
+sudo apt-get install isc-dhcp-server
+sudo apt install iptables-persistent
+sudo apt install ufw
+
+
+-------------------------------------------------
+▼ 有線LANとWi-Fiデバイスの
+   デバイス名とMACアドレスを取得する
+
+   [ 有線LAN ] xx:xx:xx:xx:xx:xx
+   [ Wi-Fi   ] xx:xx:xx:xx:xx:xx
+
+   ※以降、各デバイス名は
+     有線LANは"enx1ds"、Wi-Fiは"wlx0us"とします
+-------------------------------------------------
+ip a
+
+
+-------------------------------------------------
+▼ デバイス名の設定
+-------------------------------------------------
+sudo nano /etc/udev/rules.d/70-persistent-net.rules
+
+
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| 70-persistent-net.rules
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+SUBSYSTEM=="net", ACTION=="add", ATTR{address}=="xx:xx:xx:xx:xx:xx", NAME="enx1ds"
+SUBSYSTEM=="net", ACTION=="add", ATTR{address}=="xx:xx:xx:xx:xx:xx", NAME="wlx0us"
+
+
+-------------------------------------------------
+▼ udevのルールを再読み込み
+-------------------------------------------------
+sudo udevadm control --reload
+sudo udevadm trigger
+
+
+-------------------------------------------------
+▼ ネットワーク設定を追加
+-------------------------------------------------
+nmcli con add type ethernet ifname enx1ds con-name "LAN@enx1ds" ipv4.method manual ipv4.addresses 192.168.206.100/24 ipv4.dns "8.8.8.8,8.8.4.4" ipv4.route-metric 700 ipv6.method ignore
+
+nmcli con up "LAN@enx1ds"
+
+nmcli con add type wifi ifname wlx0us con-name "INT_guest2@wlx0us" ssid "INT_guest2" ipv4.method auto ipv6.method ignore
+
+nmcli con up "INT_guest2@wlx0us"
+
+nmcli con show
+nmcli dev status
+
+
+-------------------------------------------------
+▼ DHCPサーバー設定(1/2)
+-------------------------------------------------
+sudo nano /etc/default/isc-dhcp-server
+
+
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|  isc-dhcp-server
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+# 4行目 : コメント解除
+DHCPDv4_CONF=/etc/dhcp/dhcpd.conf
+
+# 17行目 : リスンするインターフェースを指定
+INTERFACESv4="enx1ds"
+
+
+-------------------------------------------------
+▼ DHCPサーバー設定(2/2)
+-------------------------------------------------
+sudo nano /etc/dhcp/dhcpd.conf
+
+
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|  dhcpd.conf
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+# 最終行に以下追記
+# ネットワークアドレスとサブネットマスク指定
+subnet 192.168.206.0 netmask 255.255.255.0 {
+    # デフォルトゲートウェイ指定
+    option routers 192.168.206.100;
+    # サブネットマスク指定
+    option subnet-mask 255.255.255.0;
+    # DNSサーバー設定
+    option domain-name-servers 8.8.8.8, 8.8.4.4;
+    # 貸し出す IP アドレスの範囲指定
+    range dynamic-bootp 192.168.206.101 192.168.206.200;
+}
+
+
+-------------------------------------------------
+▼ DHCPサーバーを再起動
+-------------------------------------------------
+systemctl restart isc-dhcp-server
+
+
+-------------------------------------------------
+▼ IPフォワーディングを許可(1/2)
+-------------------------------------------------
+sudo nano /etc/default/ufw
+
+
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|  ufw
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+# 19行目 : 変更
+DEFAULT_FORWARD_POLICY="ACCEPT"
+
+
+-------------------------------------------------
+▼ IPフォワーディングを許可(2/2)
+-------------------------------------------------
+sudo nano /etc/sysctl.conf
+
+
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|  sysctl.conf
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+# 28行目 : コメント解除
+net.ipv4.ip_forward=1
+
+
+-------------------------------------------------
+▼ ファイアウォール設定
+   (NATの内側でのSSH, HTTPを許可)
+-------------------------------------------------
+sudo sysctl -p
+sudo ufw allow ssh
+sudo ufw allow http
+sudo ufw enable
+sudo ufw default deny
+sudo ufw reload
+
+
+-------------------------------------------------
+▼ NAT設定
+-------------------------------------------------
+sudo iptables -t nat -A POSTROUTING -s 192.168.206.0/24 -o wlx0us -j MASQUERADE
+sudo netfilter-persistent save
+sudo netfilter-persistent reload
+
+
+以上

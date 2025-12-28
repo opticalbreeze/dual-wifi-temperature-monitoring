@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Update-Webdriver
+Comment=ChromiumのブラウザとWebドライバを最新のものにする
+Exec=/home/tester/update-webdriver.sh
+Icon=/home/tester/update-webdriver.png
+Terminal=true
+Type=Application

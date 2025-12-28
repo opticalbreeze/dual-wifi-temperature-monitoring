@@ -33,12 +33,19 @@ def receive_temperature():
         logger.info(f"JSONデコード結果: {data}")
 
         # バリデーション（device_id または sensor_id をサポート）
+        if not data:
+            logger.warning(f"❌ バリデーション失敗 - JSONデコード失敗またはデータがNone: {raw_body}")
+            return jsonify({
+                "status": "error",
+                "message": "Invalid JSON format"
+            }), 400
+        
         sensor_id = data.get('device_id') or data.get('sensor_id')
         temperature = data.get('temperature')
         
         logger.info(f"バリデーション - sensor_id: {sensor_id}, temperature: {temperature}")
 
-        if not data or not sensor_id or temperature is None:
+        if not sensor_id or temperature is None:
             logger.warning(f"❌ バリデーション失敗 - Invalid data format: {data}")
             return jsonify({
                 "status": "error",
@@ -54,8 +61,7 @@ def receive_temperature():
             
             logger.info(f"DB挿入開始 - sensor_id: {sensor_id}, temp: {temperature}, name: {sensor_name}, humidity: {humidity}")
             
-            result = TemperatureQueries.insert_reading(sensor_id, temperature, sensor_name, humidity)
-            logger.info(f"DB挿入結果: {result}")
+            TemperatureQueries.insert_reading(sensor_id, temperature, sensor_name, humidity)
             
             logger.info(f"✅ データ保存成功 - Device: {sensor_id}, Name: {sensor_name}, Location: {location}, Temp: {temperature}°C")
             logger.info("============================================================")

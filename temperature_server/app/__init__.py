@@ -1,38 +1,78 @@
-from flask import Flask
+"""
+temperature_server/app/__init__.py
+Flask アプリケーション初期化
+"""
+
+from flask import Flask, request
 from flask_cors import CORS
+from pathlib import Path
 from config import Config
 from logger import setup_logger
-from pathlib import Path
 
 logger = setup_logger(__name__)
 
 def create_app():
-    template_dir = Path(__file__).parent.parent / 'templates'
-    static_dir = Path(__file__).parent / 'static'
+    """Flask アプリケーションを作成"""
+    # プロジェクトルートを取得（app/__init__.pyの親の親）
+    project_root = Path(__file__).parent.parent
+    app = Flask(__name__, template_folder=str(project_root / 'templates'), static_folder=str(project_root / 'app' / 'static'))
     
-    app = Flask(
-        __name__,
-        template_folder=str(template_dir),
-        static_folder=str(static_dir)
-    )
-    
+    # Flask設定
     app.config['ENV'] = Config.FLASK_ENV
     app.config['DEBUG'] = Config.FLASK_DEBUG
     app.config['SECRET_KEY'] = Config.SECRET_KEY
     
-    CORS(app)
+    # ===== リクエストロギングミドルウェア（全リクエストを記録） =====
+    @app.before_request
+    def log_request():
+        """すべてのリクエストをログに記録（ESP32からのPOST検証用）"""
+        logger.debug(f"[REQUEST] {request.method} {request.path} from {request.remote_addr}")
     
-    logger.info(f"Flask app created (ENV: {Config.FLASK_ENV})")
+    @app.after_request
+    def log_response(response):
+        """すべてのレスポンスをログに記録"""
+        logger.debug(f"[RESPONSE] {request.method} {request.path} -> {response.status_code}")
+        return response
     
-    from app.routes.dashboard import dashboard_bp
-    from app.routes.api import api_bp
-    from app.routes.wifi import wifi_bp
+    # CORS設定（ホワイトリスト方式）
+    cors_config = {
+        "origins": Config.ALLOWED_ORIGINS,
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "max_age": 3600
+    }
     
-    app.register_blueprint(dashboard_bp)
-    app.register_blueprint(api_bp, url_prefix='/api')
-    app.register_blueprint(wifi_bp)
+    CORS(app, resources={
+        r"/api/*": cors_config,
+        r"/wifi/*": cors_config,
+        r"/*": cors_config
+    })
     
-    from services.background_tasks import background_tasks
-    background_tasks.start()
+    logger.info(f"CORS configured for origins: {Config.ALLOWED_ORIGINS}")
+    
+    # ブループリント登録
+    try:
+        from app.routes.wifi import wifi_bp
+        app.register_blueprint(wifi_bp)
+        logger.info("Registered wifi blueprint")
+    except ImportError as e:
+        logger.warning(f"Failed to register wifi blueprint: {e}")
+    
+    # APIブループリント（存在する場合）
+    try:
+        from app.routes.api import api_bp
+        app.register_blueprint(api_bp, url_prefix='/api')
+        logger.info("Registered api blueprint")
+    except ImportError:
+        logger.warning("api blueprint not found, skipping")
+    
+    # ダッシュボードブループリント（存在する場合）
+    try:
+        from app.routes.dashboard import dashboard_bp
+        app.register_blueprint(dashboard_bp)
+        logger.info("Registered dashboard blueprint")
+    except ImportError:
+        logger.warning("dashboard blueprint not found, skipping")
     
     return app
+

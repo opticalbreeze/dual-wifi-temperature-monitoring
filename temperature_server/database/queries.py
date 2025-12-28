@@ -4,46 +4,35 @@ temperature_server/database/queries.py
 """
 
 import threading
-from datetime import datetime, timedelta
-import pytz
+from datetime import datetime, timedelta, timezone
 from database.models import get_connection
 
 db_lock = threading.Lock()
 
-# JSTタイムゾーン
-JST = pytz.timezone('Asia/Tokyo')
-
-def get_jst_now():
-    """現在時刻をJSTで取得"""
-    return datetime.now(JST)
+# JST タイムゾーン定義
+JST = timezone(timedelta(hours=9))
 
 class TemperatureQueries:
+    
     @staticmethod
     def insert_reading(sensor_id, temperature, sensor_name=None, humidity=None):
-        """温度データを挿入（JST時刻で保存）"""
-        import logging
-        logger = logging.getLogger(__name__)
-        try:
-            with db_lock:
-                conn = get_connection()
-                cursor = conn.cursor()
-                # JST時刻を明示的に取得して保存
-                jst_now = get_jst_now()
-                cursor.execute("""
-                    INSERT INTO temperatures
-                    (sensor_id, sensor_name, temperature, humidity, timestamp)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (sensor_id, sensor_name, temperature, humidity, jst_now.strftime('%Y-%m-%d %H:%M:%S')))
-                conn.commit()
-                logger.info(f"Data inserted: sensor_id={sensor_id}, temp={temperature}, timestamp={jst_now.isoformat()}, rowid={cursor.lastrowid}")
-                conn.close()
-        except Exception as e:
-            logger.error(f"Failed to insert data: {e}", exc_info=True)
-            raise
+        """温度データを挿入（ローカルタイムゾーン）"""
+        with db_lock:
+            conn = get_connection()
+            cursor = conn.cursor()
+            # ローカル時刻で現在時刻を取得（Raspberry Pi は Asia/Tokyo に設定済み）
+            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            cursor.execute("""
+                INSERT INTO temperatures 
+                (sensor_id, sensor_name, temperature, humidity, timestamp)
+                VALUES (?, ?, ?, ?, ?)
+            """, (sensor_id, sensor_name, temperature, humidity, now))
+            conn.commit()
+            conn.close()
     
     @staticmethod
     def get_latest_reading(sensor_id):
-        """センサーの最新データを取得（JST時刻をISO形式で返す）"""
+        """センサーの最新データを取得"""
         with db_lock:
             conn = get_connection()
             cursor = conn.cursor()
@@ -55,93 +44,63 @@ class TemperatureQueries:
             result = cursor.fetchone()
             conn.close()
             if result:
-                row_dict = dict(result)
-                # timestampをISO形式に変換（JSTとして扱う）
-                if row_dict.get('timestamp'):
-                    timestamp_str = row_dict['timestamp']
-                    if isinstance(timestamp_str, str):
-                        if 'T' not in timestamp_str:
-                            timestamp_str = timestamp_str.replace(' ', 'T')
-                        if '+' not in timestamp_str and 'Z' not in timestamp_str:
-                            timestamp_str = timestamp_str + '+09:00'
-                        row_dict['timestamp'] = timestamp_str
-                return row_dict
+                return dict(result)
             return None
     
     @staticmethod
     def get_all_latest():
-        """全センサーの最新データを取得（JST時刻をISO形式で返す）"""
+        """全センサーの最新データを取得"""
+        import logging
+        db_logger = logging.getLogger('database.queries')
         with db_lock:
             conn = get_connection()
             cursor = conn.cursor()
-        
-            # すべてのセンサーの最新データを1つのクエリで取得
+            
+            # 全センサーの最新データを1つのクエリで取得（デッドロック回避）
             cursor.execute("""
-                SELECT t1.*
-                FROM temperatures t1
-                INNER JOIN (
-                    SELECT sensor_id, MAX(id) as max_id
-                    FROM temperatures
-                    GROUP BY sensor_id
-                ) t2 ON t1.sensor_id = t2.sensor_id AND t1.id = t2.max_id
-                ORDER BY t1.timestamp DESC
+                SELECT t1.* FROM temperatures t1
+                WHERE t1.id = (
+                    SELECT MAX(id) FROM temperatures t2 
+                    WHERE t2.sensor_id = t1.sensor_id
+                )
+                ORDER BY t1.sensor_id
             """)
-        
-        results = []
-        for row in cursor.fetchall():
-            row_dict = dict(row)
-            # timestampをISO形式に変換（JSTとして扱う）
-            if row_dict.get('timestamp'):
-                # SQLiteから取得した時刻文字列をJSTとして解釈してISO形式に変換
-                timestamp_str = row_dict['timestamp']
-                if isinstance(timestamp_str, str):
-                    # "2025-12-24 09:15:40" 形式を "2025-12-24T09:15:40+09:00" に変換
-                    if 'T' not in timestamp_str:
-                        timestamp_str = timestamp_str.replace(' ', 'T')
-                    if '+' not in timestamp_str and 'Z' not in timestamp_str:
-                        timestamp_str = timestamp_str + '+09:00'
-                    row_dict['timestamp'] = timestamp_str
-            results.append(row_dict)
-        conn.close()
-        return results
+            rows = cursor.fetchall()
+            results = [dict(row) for row in rows]
+            conn.close()
+            
+            db_logger.info(f"get_all_latest: Found {len(results)} sensors")
+            for data in results:
+                db_logger.debug(f"get_all_latest: Sensor: {data.get('sensor_id')}, Temp: {data.get('temperature')}, Time: {data.get('timestamp')}")
+            
+            return results
     
     @staticmethod
     def get_range(sensor_id, hours=24):
-        """指定時間範囲のデータを取得（JST時刻をISO形式で返す）"""
+        """指定時間範囲のデータを取得（ローカルタイムゾーン）"""
         with db_lock:
             conn = get_connection()
             cursor = conn.cursor()
-            # JST時刻で計算（hoursはfloatでもOK）
-            since = (get_jst_now() - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
+            # ローカル時刻から指定時間前の時刻を計算（Raspberry Pi は Asia/Tokyo に設定済み）
+            since = (datetime.now() - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
             cursor.execute("""
                 SELECT * FROM temperatures 
                 WHERE sensor_id = ? AND timestamp > ?
                 ORDER BY timestamp ASC
-            """, (sensor_id, since))  # ASCに変更（時系列順）
-            results = []
-            for row in cursor.fetchall():
-                row_dict = dict(row)
-                # timestampをISO形式に変換（JSTとして扱う）
-                if row_dict.get('timestamp'):
-                    timestamp_str = row_dict['timestamp']
-                    if isinstance(timestamp_str, str):
-                        if 'T' not in timestamp_str:
-                            timestamp_str = timestamp_str.replace(' ', 'T')
-                        if '+' not in timestamp_str and 'Z' not in timestamp_str:
-                            timestamp_str = timestamp_str + '+09:00'
-                        row_dict['timestamp'] = timestamp_str
-                results.append(row_dict)
+            """, (sensor_id, since))
+            rows = cursor.fetchall()
+            results = [dict(row) for row in rows]
             conn.close()
             return results
     
     @staticmethod
     def get_statistics(sensor_id, hours=24):
-        """温度統計を計算"""
+        """温度統計を計算（ローカルタイムゾーン）"""
         with db_lock:
             conn = get_connection()
             cursor = conn.cursor()
-            # JST時刻で計算（hoursはfloatでもOK）
-            since = (get_jst_now() - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
+            # ローカル時刻から指定時間前の時刻を計算（Raspberry Pi は Asia/Tokyo に設定済み）
+            since = (datetime.now() - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
             cursor.execute("""
                 SELECT 
                     COUNT(*) as count,
@@ -151,9 +110,11 @@ class TemperatureQueries:
                 FROM temperatures 
                 WHERE sensor_id = ? AND timestamp > ?
             """, (sensor_id, since))
-            result = dict(cursor.fetchone())
+            result = cursor.fetchone()
             conn.close()
-            return result
+            if result:
+                return dict(result)
+            return {}
 
 class SystemLogQueries:
     
@@ -180,7 +141,8 @@ class SystemLogQueries:
                 SELECT * FROM system_logs 
                 ORDER BY timestamp DESC LIMIT ?
             """, (limit,))
-            results = [dict(row) for row in cursor.fetchall()]
+            rows = cursor.fetchall()
+            results = [dict(row) for row in rows]
             conn.close()
             return results
     
@@ -190,10 +152,10 @@ class SystemLogQueries:
         with db_lock:
             conn = get_connection()
             cursor = conn.cursor()
-            # JST時刻で計算
-            since = (get_jst_now() - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+            since = (datetime.now() - timedelta(days=days)).isoformat()
             cursor.execute("DELETE FROM system_logs WHERE timestamp < ?", (since,))
             deleted = cursor.rowcount
             conn.commit()
             conn.close()
             return deleted
+

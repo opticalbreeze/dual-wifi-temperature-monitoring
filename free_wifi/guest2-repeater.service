@@ -1,0 +1,21 @@
+﻿[Unit]
+Description=Guest2-Repeater Wi-Fi Repeater for Raspbian
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=raspberry
+Group=raspberry
+WorkingDirectory=/home/raspberry/free_wifi
+Environment="DISPLAY=:0"
+Environment="XAUTHORITY=/home/raspberry/.Xauthority"
+ExecStartPre=/bin/sleep 10
+ExecStart=/bin/bash /home/raspberry/free_wifi/start.sh
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=graphical.target

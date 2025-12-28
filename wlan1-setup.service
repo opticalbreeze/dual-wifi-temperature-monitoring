@@ -5,7 +5,12 @@ Before=hostapd.service temperature-server.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash -c 'nmcli device set wlan1 managed no 2>/dev/null || true; ip addr flush dev wlan1 2>/dev/null || true; ip addr add 192.168.4.1/24 dev wlan1; ip link set wlan1 up'
+# 環境変数（デフォルト値: 192.168.4.1/24, wlan1）
+Environment=AP_IP=192.168.4.1
+Environment=AP_SUBNET=24
+Environment=AP_INTERFACE=wlan1
+# setup_wlan1.shスクリプトを使用（環境変数を読み込む）
+ExecStart=/usr/local/bin/setup_wlan1.sh
 RemainAfterExit=yes
 StandardOutput=journal
 StandardError=journal

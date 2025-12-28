@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Guest2-Repeater
+Comment=院内フリーWi-Fi(INT_guest2)を中継するプログラム
+Exec=/home/tester/guest2-rep.sh
+Icon=/home/tester/guest-rep.png
+Terminal=true
+Type=Application

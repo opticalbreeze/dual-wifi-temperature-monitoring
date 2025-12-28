@@ -12,8 +12,6 @@ project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
 from database.models import get_connection
-from database.queries import get_jst_now
-from datetime import timedelta
 
 def cleanup_dummy_data():
     """ダミーデータを削除"""
