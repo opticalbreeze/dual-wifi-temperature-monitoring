@@ -1,34 +1,32 @@
-# Git repositories (submodules)
-8821au-driver/
-88x2bu-20210702/
-temperature_server/.git/
-
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Virtual environments
 venv/
 env/
 ENV/
+.venv
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+!free_wifi/.venv/  # Include free_wifi venv
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+temperature_server/data/*.db
+temperature_server/data/*.sqlite
+
+# Logs
+*.log
+logs/
+temperature_server/logs/*.log
 
 # IDE
 .vscode/
@@ -41,15 +39,36 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# Logs
-*.log
-logs/
+# Environment variables
+.env
+.env.local
 
-# Database
-*.db
-*.sqlite
-*.sqlite3
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
 
 # Temporary files
 *.tmp
-temp/
+*.bak
+*.swp
+
+# Build files
+build/
+dist/
+*.egg-info/
+
+# Raspberry Pi specific
+raspberry@*
+*.service.backup
+
+# Backup directories
+venv_backup/
+backup/
+
+# WiFi drivers (optional - include if needed, or move to separate repo)
+# 8821au-driver/
+# 88x2bu-20210702/
+
+# SSH connection files
+raspberry@*
