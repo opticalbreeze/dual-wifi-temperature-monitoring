@@ -8,9 +8,8 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: 'Courier New', 'Consolas', 'Monaco', monospace;
-            background: #1a1a1a;
-            color: #e0e0e0;
+            font-family: 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             padding: 10px;
         }
@@ -20,14 +19,11 @@
         }
         header {
             text-align: center;
-            color: #00ff00;
+            color: white;
             margin-bottom: 15px;
-            border: 2px solid #00ff00;
-            padding: 15px;
-            background: #000000;
         }
-        header h1 { font-size: 1.8em; margin-bottom: 5px; font-weight: bold; }
-        header p { font-size: 0.9em; color: #00ff00; }
+        header h1 { font-size: 1.8em; margin-bottom: 5px; }
+        header p { font-size: 0.9em; }
         .nav {
             display: flex;
             gap: 8px;
@@ -37,125 +33,106 @@
         }
         .btn {
             padding: 8px 16px;
-            border: 2px solid #00ff00;
-            border-radius: 0;
-            background: #000000;
-            color: #00ff00;
+            border: none;
+            border-radius: 6px;
+            background: rgba(255,255,255,0.2);
+            color: white;
             cursor: pointer;
-            font-weight: bold;
+            font-weight: 600;
             font-size: 0.9em;
+            transition: all 0.3s ease;
             text-decoration: none;
             display: inline-block;
-            text-transform: uppercase;
         }
-        .btn:hover { 
-            background: #00ff00; 
-            color: #000000;
-            box-shadow: 0 0 10px #00ff00;
-        }
-        .btn.active { 
-            background: #00ff00; 
-            color: #000000;
-        }
+        .btn:hover { background: rgba(255,255,255,0.3); }
+        .btn.active { background: white; color: #667eea; }
         
         .sensors-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 12px;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 8px;
             margin-bottom: 15px;
         }
         .card {
-            background: #000000;
-            border: 2px solid #00ff00;
-            border-radius: 0;
-            padding: 15px;
-            box-shadow: 0 0 0 rgba(0,0,0,0);
-            border-left: 4px solid #00ff00;
-        }
-        .card:hover { 
-            border-left: 4px solid #ffff00;
-            box-shadow: 0 0 15px rgba(0,255,0,0.5);
-        }
-        .card h2 { 
-            color: #00ff00; 
-            margin-bottom: 10px; 
-            font-size: 1.1em; 
-            font-weight: bold;
-            text-transform: uppercase;
-        }
-        .card h3 { 
-            color: #ffff00; 
-            margin-bottom: 8px; 
-            font-size: 1em;
-            font-weight: bold;
-        }
-        .temp-display {
-            font-size: 2.2em;
-            font-weight: bold;
-            color: #00ff00;
-            text-align: center;
-            margin: 10px 0;
-            font-family: 'Courier New', monospace;
-            border: 2px solid #00ff00;
+            background: white;
+            border-radius: 8px;
             padding: 10px;
-            background: #001a00;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+            transition: transform 0.3s ease;
+        }
+        .card:hover { transform: translateY(-2px); }
+        .card h2 { color: #667eea; margin-bottom: 6px; font-size: 0.95em; }
+        .card h3 { color: #764ba2; margin-bottom: 4px; font-size: 0.9em; }
+        .temp-display {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #764ba2;
+            text-align: center;
+            margin: 4px 0;
         }
         .sensor-info {
-            margin-top: 10px;
-            padding-top: 10px;
-            border-top: 2px solid #00ff00;
+            margin-top: 6px;
+            padding-top: 6px;
+            border-top: 1px solid #eee;
         }
         .sensor-info p {
-            margin: 3px 0;
-            color: #00ff00;
-            font-size: 0.9em;
-            font-family: 'Courier New', monospace;
+            margin: 2px 0;
+            color: #666;
+            font-size: 0.8em;
         }
         .sensor-info strong {
-            color: #ffff00;
+            color: #333;
+        }
+        .card.minimal {
+            background: rgba(255,255,255,0.9);
+            padding: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .card.minimal .minimal-content {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+        .card.minimal .sensor-name {
+            font-weight: bold;
+            font-size: 0.9em;
+            color: #333;
+        }
+        .card.minimal .last-update {
+            font-size: 0.75em;
+            color: #999;
         }
         .status {
             display: flex;
             gap: 8px;
             padding: 6px 10px;
-            background: #000000;
-            border: 2px solid #00ff00;
-            border-radius: 0;
+            background: #f0f0f0;
+            border-radius: 6px;
             margin: 5px 0;
             font-size: 0.9em;
-            font-family: 'Courier New', monospace;
         }
         .status-dot {
             width: 12px;
             height: 12px;
-            border-radius: 0;
+            border-radius: 50%;
             margin-top: 4px;
-            border: 1px solid #00ff00;
         }
-        .status-dot.online { 
-            background: #00ff00;
-            box-shadow: 0 0 5px #00ff00;
-        }
-        .status-dot.offline { 
-            background: #ff0000;
-            box-shadow: 0 0 5px #ff0000;
-        }
+        .status-dot.online { background: #4caf50; }
+        .status-dot.offline { background: #f44336; }
         
         .chart-container {
-            background: #000000;
-            border: 2px solid #00ff00;
-            border-radius: 0;
+            background: white;
+            border-radius: 10px;
             padding: 15px;
-            box-shadow: 0 0 0 rgba(0,0,0,0);
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
             margin-bottom: 15px;
         }
         .chart-container h2 {
-            color: #00ff00;
+            color: #667eea;
             margin-bottom: 12px;
             font-size: 1.2em;
-            font-weight: bold;
-            text-transform: uppercase;
-            font-family: 'Courier New', monospace;
         }
         .chart-controls {
             display: flex;
@@ -165,24 +142,22 @@
         }
         .chart-controls button {
             padding: 6px 12px;
-            border: 2px solid #00ff00;
-            border-radius: 0;
-            background: #000000;
-            color: #00ff00;
+            border: 2px solid #667eea;
+            border-radius: 5px;
+            background: white;
+            color: #667eea;
             cursor: pointer;
-            font-weight: bold;
+            font-weight: 600;
             font-size: 0.85em;
-            font-family: 'Courier New', monospace;
-            text-transform: uppercase;
+            transition: all 0.3s ease;
         }
         .chart-controls button:hover {
-            background: #00ff00;
-            color: #000000;
-            box-shadow: 0 0 10px #00ff00;
+            background: #667eea;
+            color: white;
         }
         .chart-controls button.active {
-            background: #00ff00;
-            color: #000000;
+            background: #667eea;
+            color: white;
         }
         .chart-wrapper {
             position: relative;
@@ -367,6 +342,22 @@
             };
         }
 
+        // グラフデータのないセンサーに対して簡潔なカードを表示
+        function createMinimalSensorCard(sensor) {
+            const timeStr = sensor.timestamp ? 
+                new Date(sensor.timestamp).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }) : 
+                '未取得';
+            
+            return `
+                <div class="card minimal">
+                    <div class="minimal-content">
+                        <div class="sensor-name">${sensor.sensor_name || sensor.sensor_id}</div>
+                        <div class="last-update">最終更新: ${timeStr}</div>
+                    </div>
+                </div>
+            `;
+        }
+
         // グラフデータを更新
         async function updateChart() {
             if (!temperatureChart) return;
@@ -384,6 +375,7 @@
                 const allLabels = new Set();
                 const sensorDataMap = {};
                 const allTemps = [];
+                const sensorsWithoutData = [];
 
                 // 各センサーのデータを取得
                 for (let i = 0; i < sensorsData.sensors.length; i++) {
@@ -466,6 +458,9 @@
                                 dataPoints: dataPoints,
                                 name: sensor.sensor_name || sensor.sensor_id
                             };
+                        } else {
+                            // グラフデータがないセンサー
+                            sensorsWithoutData.push(sensor);
                         }
                     } catch (err) {
                         console.error(`Error fetching history for ${sensor.sensor_id}:`, err);
@@ -579,6 +574,15 @@
                     `📈 温度トレンドグラフ（過去${timeLabels[currentHours] || currentHours + '時間'}）`;
                 
                 temperatureChart.update();
+                
+                // グラフデータがないセンサーを簡潔表示
+                const sensorsGrid = document.getElementById('sensors-grid');
+                if (sensorsWithoutData.length > 0) {
+                    const minimalCardsHTML = sensorsWithoutData
+                        .map(sensor => createMinimalSensorCard(sensor))
+                        .join('');
+                    sensorsGrid.innerHTML += minimalCardsHTML;
+                }
             } catch (error) {
                 console.error('Error updating chart:', error);
             }
