@@ -382,9 +382,14 @@
                     const sensor = sensorsData.sensors[i];
                     try {
                         const historyResponse = await fetch(`/api/temperature/${sensor.sensor_id}?hours=${currentHours}`);
+                        if (!historyResponse.ok) {
+                            console.error(`Failed to fetch history for ${sensor.sensor_id}: ${historyResponse.status}`);
+                            continue;
+                        }
                         const historyData = await historyResponse.json();
                         
                         if (historyData.readings && historyData.readings.length > 0) {
+                            console.log(`Found ${historyData.readings.length} readings for ${sensor.sensor_id}`);
                             // データを時系列順に並べ替え（APIからはASCで返されるが念のため）
                             const sortedReadings = historyData.readings.sort((a, b) => {
                                 return new Date(a.timestamp) - new Date(b.timestamp);
@@ -460,12 +465,15 @@
                             };
                         } else {
                             // グラフデータがないセンサー
+                            console.warn(`No readings found for ${sensor.sensor_id} (hours=${currentHours})`);
                             sensorsWithoutData.push(sensor);
                         }
                     } catch (err) {
                         console.error(`Error fetching history for ${sensor.sensor_id}:`, err);
                     }
                 }
+                
+                console.log(`Total sensors with data: ${Object.keys(sensorDataMap).length}, without data: ${sensorsWithoutData.length}`);
 
                 // すべてのタイムスタンプを収集してソート
                 const allTimestamps = new Set();
@@ -575,14 +583,8 @@
                 
                 temperatureChart.update();
                 
-                // グラフデータがないセンサーを簡潔表示
-                const sensorsGrid = document.getElementById('sensors-grid');
-                if (sensorsWithoutData.length > 0) {
-                    const minimalCardsHTML = sensorsWithoutData
-                        .map(sensor => createMinimalSensorCard(sensor))
-                        .join('');
-                    sensorsGrid.innerHTML += minimalCardsHTML;
-                }
+                // グラフデータがないセンサーは updateData() で既に表示されているため、ここでは追加しない
+                // （重複を避けるため）
             } catch (error) {
                 console.error('Error updating chart:', error);
             }
@@ -593,14 +595,24 @@
             try {
                 // 温度データを取得
                 const sensorsResponse = await fetch('/api/sensors');
+                if (!sensorsResponse.ok) {
+                    throw new Error(`HTTP error! status: ${sensorsResponse.status}`);
+                }
                 const sensorsData = await sensorsResponse.json();
                 
                 // システムステータスを取得
-                const statusResponse = await fetch('/api/status');
-                const statusData = await statusResponse.json();
+                let statusData = null;
+                try {
+                    const statusResponse = await fetch('/api/status');
+                    if (statusResponse.ok) {
+                        statusData = await statusResponse.json();
+                    }
+                } catch (statusError) {
+                    console.warn('Status API error:', statusError);
+                }
                 
                 console.log('Sensors:', sensorsData);
-                console.log('Status:', statusData);
+                if (statusData) console.log('Status:', statusData);
             
                 // センサーカードを更新
                 const sensorsGrid = document.getElementById('sensors-grid');
@@ -608,21 +620,42 @@
                     sensorsGrid.innerHTML = sensorsData.sensors.map(sensor => createSensorCard(sensor)).join('');
                     
                     // センサー数を更新
-                    document.getElementById('sensor-count').textContent = sensorsData.sensors.length;
+                    const sensorCountEl = document.getElementById('sensor-count');
+                    if (sensorCountEl) {
+                        sensorCountEl.textContent = sensorsData.sensors.length;
+                    }
                     
                     // ステータスを更新
-                    document.getElementById('status-esp32').className = 'status-dot online';
-                    document.getElementById('status-esp32-text').textContent = `ESP32 接続中 (${sensorsData.sensors.length}台)`;
+                    const statusEsp32El = document.getElementById('status-esp32');
+                    const statusEsp32TextEl = document.getElementById('status-esp32-text');
+                    if (statusEsp32El) {
+                        statusEsp32El.className = 'status-dot online';
+                    }
+                    if (statusEsp32TextEl) {
+                        statusEsp32TextEl.textContent = `ESP32 接続中 (${sensorsData.sensors.length}台)`;
+                    }
                 } else {
                     sensorsGrid.innerHTML = '<div class="card"><h2>センサー未接続</h2><p>ESP32からのデータを受信していません</p></div>';
-                    document.getElementById('sensor-count').textContent = '0';
-                    document.getElementById('status-esp32').className = 'status-dot offline';
-                    document.getElementById('status-esp32-text').textContent = 'ESP32 未接続';
+                    const sensorCountEl = document.getElementById('sensor-count');
+                    if (sensorCountEl) {
+                        sensorCountEl.textContent = '0';
+                    }
+                    const statusEsp32El = document.getElementById('status-esp32');
+                    const statusEsp32TextEl = document.getElementById('status-esp32-text');
+                    if (statusEsp32El) {
+                        statusEsp32El.className = 'status-dot offline';
+                    }
+                    if (statusEsp32TextEl) {
+                        statusEsp32TextEl.textContent = 'ESP32 未接続';
+                    }
                 }
             
             } catch (error) {
-                console.error('Error:', error);
-                document.getElementById('sensors-grid').innerHTML = '<div class="card"><h2>エラー</h2><p>データの取得に失敗しました</p></div>';
+                console.error('Error updating data:', error);
+                const sensorsGrid = document.getElementById('sensors-grid');
+                if (sensorsGrid) {
+                    sensorsGrid.innerHTML = '<div class="card"><h2>エラー</h2><p>データの取得に失敗しました: ' + error.message + '</p></div>';
+                }
             }
         }
 

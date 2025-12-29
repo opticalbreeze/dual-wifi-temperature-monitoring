@@ -58,4 +58,8 @@ class Config:
         'http://localhost:3000,http://192.168.4.1:5000,http://127.0.0.1:5000'
     ).split(',')
 
-
+    # ===== シリアル通信設定（USB/Serial経由のESP32データ受信） =====
+    SERIAL_ENABLED = os.getenv('SERIAL_ENABLED', 'True').lower() == 'true'
+    SERIAL_PORT = os.getenv('SERIAL_PORT', None)  # None=自動検出、例: '/dev/ttyUSB0'
+    SERIAL_BAUDRATE = int(os.getenv('SERIAL_BAUDRATE', 115200))  # ボーレート
+    SERIAL_TIMEOUT = float(os.getenv('SERIAL_TIMEOUT', 1.0))  # タイムアウト（秒）

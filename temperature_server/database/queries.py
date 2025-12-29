@@ -82,10 +82,11 @@ class TemperatureQueries:
             conn = get_connection()
             cursor = conn.cursor()
             # ローカル時刻から指定時間前の時刻を計算（Raspberry Pi は Asia/Tokyo に設定済み）
-            since = (datetime.now() - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
+            # JST時刻で計算
+            since = (datetime.now(JST) - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
             cursor.execute("""
                 SELECT * FROM temperatures 
-                WHERE sensor_id = ? AND timestamp > ?
+                WHERE sensor_id = ? AND timestamp >= ?
                 ORDER BY timestamp ASC
             """, (sensor_id, since))
             rows = cursor.fetchall()
@@ -99,8 +100,8 @@ class TemperatureQueries:
         with db_lock:
             conn = get_connection()
             cursor = conn.cursor()
-            # ローカル時刻から指定時間前の時刻を計算（Raspberry Pi は Asia/Tokyo に設定済み）
-            since = (datetime.now() - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
+            # ローカル時刻から指定時間前の時刻を計算（JST時刻で計算）
+            since = (datetime.now(JST) - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
             cursor.execute("""
                 SELECT 
                     COUNT(*) as count,
@@ -108,7 +109,7 @@ class TemperatureQueries:
                     MIN(temperature) as min_temp,
                     MAX(temperature) as max_temp
                 FROM temperatures 
-                WHERE sensor_id = ? AND timestamp > ?
+                WHERE sensor_id = ? AND timestamp >= ?
             """, (sensor_id, since))
             result = cursor.fetchone()
             conn.close()

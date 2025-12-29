@@ -250,3 +250,5 @@ nohup python run.py > server.log 2>&1 &
 - `temperature_server/systemd/temperature-server.service`: systemdサービス設定例
 
 
+
+

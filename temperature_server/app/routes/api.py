@@ -114,8 +114,11 @@ def get_sensor_data(sensor_id):
     """特定センサーのデータを取得"""
     try:
         hours = request.args.get('hours', 24, type=float)  # float対応（0.5時間の30分に対応）
+        logger.debug(f"GET /api/temperature/{sensor_id} - hours={hours}")
         readings = TemperatureQueries.get_range(sensor_id, hours)
         stats = TemperatureQueries.get_statistics(sensor_id, hours)
+        
+        logger.debug(f"GET /api/temperature/{sensor_id} - Found {len(readings)} readings")
 
         return jsonify({
             "status": "success",
@@ -124,7 +127,7 @@ def get_sensor_data(sensor_id):
             "statistics": stats
         })
     except Exception as e:
-        logger.error(f"Error fetching sensor data: {e}")
+        logger.error(f"Error fetching sensor data: {e}", exc_info=True)
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @api_bp.route('/status', methods=['GET'])

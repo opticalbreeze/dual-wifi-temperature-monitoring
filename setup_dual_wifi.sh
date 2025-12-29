@@ -1,5 +1,13 @@
 #!/bin/bash
 # デュアルWiFi設定スクリプト（新規ラズパイ用）
+# ⚠️ 現地操作専用 - リモート実行禁止
+
+# リモート実行の検出
+if [ -n "$SSH_CONNECTION" ] || [ -n "$SSH_CLIENT" ]; then
+    echo "❌ エラー: このスクリプトはSSH経由で実行できません。"
+    echo "現地操作（HDMI/キーボード）が必要です。"
+    exit 1
+fi
 
 set -e
 
@@ -10,9 +18,19 @@ AP_INTERFACE="${AP_INTERFACE:-wlan1}"
 
 echo "=== デュアルWiFi設定セットアップ ==="
 echo ""
+echo "⚠️  警告: このスクリプトはネットワーク設定を変更します。"
 echo "このスクリプトは以下を設定します："
 echo "- wlan0: インターネット接続（クライアントモード）"
 echo "- ${AP_INTERFACE}: ESP32接続用AP（${AP_IP}/${AP_SUBNET}）"
+echo ""
+echo "接続経路を確認中..."
+DEFAULT_IF=$(ip route show default 2>/dev/null | awk '{print $5}' | head -1)
+if [ "$DEFAULT_IF" = "$AP_INTERFACE" ]; then
+    echo "❌ エラー: $AP_INTERFACE がデフォルトゲートウェイとして使用されています。"
+    echo "実行を中止します。"
+    exit 1
+fi
+echo "デフォルトゲートウェイ: $DEFAULT_IF (OK)"
 echo ""
 read -p "続行しますか？ (y/N): " -n 1 -r
 echo
