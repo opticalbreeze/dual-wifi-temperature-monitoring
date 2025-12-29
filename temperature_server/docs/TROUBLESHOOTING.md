@@ -155,18 +155,37 @@ sudo reboot
 
 ---
 
-### 🔴 Issue 3: wlan1 の IP アドレスが 192.168.4.1 ではない
+### 🔴 Issue 3: wlan1 の IP アドレスが 192.168.4.1 ではない（別のWiFiネットワークに接続されている）
 
 #### 症状
 ```
 $ ip addr show wlan1
 4: wlan1: <BROADCAST,MULTICAST,UP,LOWER_UP>
-    inet 192.168.100.x/24 scope global wlan1  # ← 違う！
+    inet 172.17.5.42/24 scope global wlan1  # ← 違う！APモードではない
+    # または
+    inet 192.168.1.93/24 scope global wlan1  # ← 違う！
 ```
+
+**追加症状：**
+- ESP32からのPOSTが受信されない
+- NetworkManagerがwlan1を管理している（`nmcli device status | grep wlan1`で`managed`と表示される）
 
 #### 診断
 
 ```bash
+# wlan1のIPアドレスを確認
+ip addr show wlan1 | grep "inet "
+
+# NetworkManagerがwlan1を管理しているか確認
+nmcli device status | grep wlan1
+# 出力が "wlan1 wifi managed" の場合は問題あり
+
+# NetworkManagerのログを確認（wlan1がWiFiに接続しようとしているか）
+journalctl -u NetworkManager --since '1 hour ago' | grep -i wlan1
+
+# free_wifiサービスが動作しているか確認（原因の可能性）
+systemctl status guest2-repeater.service
+
 # dhcpcd 設定を確認
 cat /etc/dhcpcd.conf | tail -20
 
@@ -174,7 +193,70 @@ cat /etc/dhcpcd.conf | tail -20
 grep -A 3 "interface wlan1" /etc/dhcpcd.conf
 ```
 
+#### 原因
+
+**主な原因：NetworkManagerがwlan1を管理している**
+
+1. NetworkManagerがwlan1を管理している場合、他のサービス（例：`free_wifi`の再接続処理）がwlan0を操作（`rfkill block/unblock wlan0`）すると、NetworkManagerがWiFiインターフェースの状態変化を検知します。
+2. NetworkManagerがwlan1も再スキャンし、既知のWiFiネットワーク（過去に接続したことがある）に自動接続してしまいます。
+3. 結果として、wlan1がAPモード（192.168.4.1）から別のWiFiネットワークに切り替わります。
+
+**確認方法：**
+```bash
+# NetworkManagerのログでwlan1の接続試行を確認
+journalctl -u NetworkManager | grep -i "wlan1.*associating\|wlan1.*completed"
+# 出力例：
+# device (wlan1): supplicant interface state: scanning -> associating
+# device (wlan1): supplicant interface state: associating -> completed
+# dhcp4 (wlan1): state changed new lease, address=172.17.5.42
+```
+
 #### 解決方法
+
+**方法 A：NetworkManagerがwlan1を管理しないように設定（推奨）**
+
+```bash
+# 1. NetworkManager設定ディレクトリを作成
+sudo mkdir -p /etc/NetworkManager/conf.d
+
+# 2. wlan1を管理対象外にする設定ファイルを作成
+sudo bash -c 'cat > /etc/NetworkManager/conf.d/99-unmanaged-wlan1.conf << EOF
+[keyfile]
+unmanaged-devices=interface-name:wlan1
+EOF'
+
+# 3. NetworkManagerをリロード
+sudo systemctl reload NetworkManager
+
+# 4. 確認
+nmcli device status | grep wlan1
+# 出力が "wlan1 wifi unmanaged" になればOK
+
+# 5. wlan1をAPモードに復旧
+sudo ip addr flush dev wlan1
+sudo ip addr add 192.168.4.1/24 dev wlan1
+sudo ip link set wlan1 up
+
+# 6. hostapdを再起動
+sudo systemctl restart hostapd
+```
+
+**方法 B：wlan1-static-ip.service を使用（自動設定）**
+
+```bash
+# サービスが有効化されているか確認
+systemctl is-enabled wlan1-static-ip.service
+
+# 有効化されていない場合は有効化
+sudo systemctl enable wlan1-static-ip.service
+sudo systemctl restart wlan1-static-ip.service
+
+# 確認
+sudo systemctl status wlan1-static-ip.service
+ip addr show wlan1 | grep "inet 192.168.4.1"
+```
+
+**方法 C：dhcpcd.conf を編集（従来の方法）**
 
 ```bash
 # dhcpcd.conf を編集

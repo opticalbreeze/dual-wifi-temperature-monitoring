@@ -486,11 +486,18 @@ class Application(tk.Frame):
         wlan0のみをブロックし、wlan1（AP）には影響しません。
         再接続処理の第1ステップで使用されます。
         
+        ⚠️ 注意事項：
+        - この処理はwlan0のみを対象としていますが、NetworkManagerがwlan1を管理している場合、
+          NetworkManagerがWiFiインターフェースの状態変化を検知し、wlan1も再スキャンする可能性があります。
+        - wlan1がAPモードで正常に動作するためには、NetworkManagerがwlan1を管理しないように
+          設定する必要があります（/etc/NetworkManager/conf.d/99-unmanaged-wlan1.conf）。
+        
         Returns:
             戻り値（0=成功、その他=失敗）
         """
         # システムコマンドを実行（sudo権限必要）
         # wlan0のみをブロック（wlan1のAPは影響を受けない）
+        # ただし、NetworkManagerがwlan1を管理している場合は影響を受ける可能性がある
         cp = subprocess.run("sudo rfkill block wlan0", shell=True, capture_output=True, text=True)
         txt = "Wi-Fiを遮断しています..."
         if cp.returncode == 0:
@@ -508,11 +515,18 @@ class Application(tk.Frame):
         wlan0のみをアンブロックし、wlan1（AP）には影響しません。
         再接続処理の第2ステップで使用されます。
         
+        ⚠️ 注意事項：
+        - この処理はwlan0のみを対象としていますが、NetworkManagerがwlan1を管理している場合、
+          NetworkManagerがWiFiインターフェースの状態変化を検知し、wlan1も再スキャンする可能性があります。
+        - wlan1がAPモードで正常に動作するためには、NetworkManagerがwlan1を管理しないように
+          設定する必要があります（/etc/NetworkManager/conf.d/99-unmanaged-wlan1.conf）。
+        
         Returns:
             戻り値（0=成功、その他=失敗）
         """
         # システムコマンドを実行（sudo権限必要）
         # wlan0のみをアンブロック（wlan1のAPは影響を受けない）
+        # ただし、NetworkManagerがwlan1を管理している場合は影響を受ける可能性がある
         cp = subprocess.run("sudo rfkill unblock wlan0", shell=True, capture_output=True, text=True)
         txt = "Wi-Fiの遮断を解除しています..."
         if cp.returncode == 0:

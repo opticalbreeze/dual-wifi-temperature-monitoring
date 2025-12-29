@@ -248,9 +248,62 @@ sudo iptables -L -n -v
 
 ---
 
-## Step 4: サービス設定
+## Step 4: NetworkManager 設定（重要）
 
-### 4.1 hostapd サービス有効化
+### 4.1 NetworkManager が wlan1 を管理しないように設定
+
+**⚠️ 重要：** NetworkManagerがwlan1を管理していると、他のサービス（例：free_wifiの再接続処理）がwlan0を操作した際に、NetworkManagerがwlan1も再スキャンし、既知のWiFiネットワークに自動接続してしまう可能性があります。これを防ぐため、NetworkManagerがwlan1を管理しないように設定します。
+
+```bash
+# NetworkManager設定ディレクトリを作成（存在しない場合）
+sudo mkdir -p /etc/NetworkManager/conf.d
+
+# wlan1を管理対象外にする設定ファイルを作成
+sudo bash -c 'cat > /etc/NetworkManager/conf.d/99-unmanaged-wlan1.conf << EOF
+[keyfile]
+unmanaged-devices=interface-name:wlan1
+EOF'
+
+# NetworkManagerをリロード
+sudo systemctl reload NetworkManager
+
+# 確認
+nmcli device status | grep wlan1
+# 出力例：
+# wlan1          wifi      unmanaged               --
+```
+
+**設定の意味：**
+- `unmanaged-devices=interface-name:wlan1`：NetworkManagerがwlan1を管理対象外にする
+- これにより、NetworkManagerはwlan1に対してWiFiスキャンや自動接続を行わない
+
+### 4.2 wlan1-static-ip.service の設定
+
+wlan1をAPモードに設定するsystemdサービスを確認・設定します。
+
+```bash
+# サービスファイルの確認
+cat /etc/systemd/system/wlan1-static-ip.service
+
+# サービスが有効化されているか確認
+systemctl is-enabled wlan1-static-ip.service
+
+# 有効化されていない場合は有効化
+sudo systemctl enable wlan1-static-ip.service
+sudo systemctl start wlan1-static-ip.service
+
+# 確認
+sudo systemctl status wlan1-static-ip.service
+```
+
+**注意：** `wlan1-static-ip.service`は、起動時に自動的に以下を実行します：
+1. NetworkManagerがwlan1を管理しないように設定（永続化）
+2. wlan1のIPアドレスを192.168.4.1/24に設定
+3. wlan1を有効化
+
+## Step 5: サービス設定
+
+### 5.1 hostapd サービス有効化
 
 ```bash
 # hostapd が systemd で自動起動されるよう設定
@@ -262,7 +315,7 @@ sudo systemctl start hostapd
 sudo systemctl status hostapd
 ```
 
-### 4.2 dnsmasq サービス有効化
+### 5.2 dnsmasq サービス有効化
 
 ```bash
 sudo systemctl enable dnsmasq
@@ -274,9 +327,9 @@ sudo systemctl status dnsmasq
 
 ---
 
-## Step 5: 接続テスト
+## Step 6: 接続テスト
 
-### 5.1 Raspberry Pi 側でのテスト
+### 6.1 Raspberry Pi 側でのテスト
 
 ```bash
 # wlan1 が UP しているか確認
@@ -295,7 +348,7 @@ sudo hostapd_cli status
 sudo systemctl status dnsmasq
 ```
 
-### 5.2 別のデバイスでの接続テスト
+### 6.2 別のデバイスでの接続テスト
 
 別の PC やスマートフォンから以下を確認：
 
@@ -309,9 +362,9 @@ sudo systemctl status dnsmasq
 
 ---
 
-## Step 6: ESP32 からの接続確認
+## Step 7: ESP32 からの接続確認
 
-### 6.1 ESP32 WiFi コード例
+### 7.1 ESP32 WiFi コード例
 
 ```cpp
 #include <WiFi.h>
@@ -346,7 +399,7 @@ void loop() {
 }
 ```
 
-### 6.2 接続確認
+### 7.2 接続確認
 
 ```bash
 # Raspberry Pi で接続しているクライアントを確認
@@ -364,9 +417,9 @@ sudo iw dev wlan1 station dump
 
 ---
 
-## Step 7: Flask サーバーの設定確認
+## Step 8: Flask サーバーの設定確認
 
-### 7.1 Flask が全インターフェースでリッスンしているか確認
+### 8.1 Flask が全インターフェースでリッスンしているか確認
 
 ```bash
 # config.py で FLASK_HOST = '0.0.0.0' が設定されていることを確認
@@ -381,7 +434,7 @@ sudo ss -tlnp | grep 5000
 # tcp  0  0  0.0.0.0:5000  0.0.0.0:*  LISTEN  12345/python3
 ```
 
-### 7.2 ネットワークテスト
+### 8.2 ネットワークテスト
 
 ```bash
 # ローカルホストテスト (成功すれば Flask は動作している)
@@ -400,6 +453,46 @@ curl -X POST http://192.168.4.1:5000/api/temperature \
 ---
 
 ## トラブルシューティング（初期段階）
+
+### 問題：wlan1 が別のWiFiネットワークに接続されてしまう
+
+**症状：**
+- wlan1のIPアドレスが192.168.4.1ではなく、別のIPアドレス（例：172.17.5.42、192.168.1.93）になっている
+- ESP32からのPOSTが受信されない
+
+**原因：**
+- NetworkManagerがwlan1を管理しており、既知のWiFiネットワークに自動接続している
+- 他のサービス（例：free_wifiの再接続処理）がwlan0を操作した際に、NetworkManagerがwlan1も再スキャンしている
+
+**解決方法：**
+```bash
+# 1. NetworkManagerがwlan1を管理していないか確認
+nmcli device status | grep wlan1
+# 出力が "wlan1 wifi unmanaged" でない場合は設定が必要
+
+# 2. NetworkManagerがwlan1を管理しないように設定
+sudo mkdir -p /etc/NetworkManager/conf.d
+sudo bash -c 'cat > /etc/NetworkManager/conf.d/99-unmanaged-wlan1.conf << EOF
+[keyfile]
+unmanaged-devices=interface-name:wlan1
+EOF'
+
+# 3. NetworkManagerをリロード
+sudo systemctl reload NetworkManager
+
+# 4. wlan1をAPモードに復旧
+sudo ip addr flush dev wlan1
+sudo ip addr add 192.168.4.1/24 dev wlan1
+sudo ip link set wlan1 up
+
+# 5. 確認
+ip addr show wlan1 | grep "inet 192.168.4.1"
+nmcli device status | grep wlan1
+```
+
+**予防策：**
+- `wlan1-static-ip.service`が有効化されていることを確認
+- このサービスは起動時に自動的にNetworkManagerの設定を適用します
 
 ### 問題：wlan1 が見つからない
 

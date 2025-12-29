@@ -1,10 +1,16 @@
 [Unit]
 Description=Setup wlan1 IP Address for AP Mode
-After=network.target hostapd.service dnsmasq.service
+After=network.target NetworkManager.service hostapd.service dnsmasq.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash -c 'ip addr show wlan1 | grep -q "192.168.4.1" || ip addr add 192.168.4.1/24 dev wlan1'
+# NetworkManagerがwlan1を管理しないように設定（永続化）
+ExecStart=/bin/bash -c 'if [ ! -f /etc/NetworkManager/conf.d/99-unmanaged-wlan1.conf ]; then mkdir -p /etc/NetworkManager/conf.d && echo "[keyfile]" > /etc/NetworkManager/conf.d/99-unmanaged-wlan1.conf && echo "unmanaged-devices=interface-name:wlan1" >> /etc/NetworkManager/conf.d/99-unmanaged-wlan1.conf && systemctl reload NetworkManager 2>/dev/null || true; fi'
+# NetworkManagerがwlan1を管理しないように設定（一時的）
+ExecStart=/bin/bash -c 'nmcli device set wlan1 managed no 2>/dev/null || true'
+# wlan1のIPアドレスを設定
+ExecStart=/bin/bash -c 'ip addr flush dev wlan1 2>/dev/null || true; ip addr show wlan1 | grep -q "192.168.4.1" || ip addr add 192.168.4.1/24 dev wlan1'
+# wlan1を有効化
 ExecStart=/usr/sbin/ip link set wlan1 up
 RemainAfterExit=yes
 
