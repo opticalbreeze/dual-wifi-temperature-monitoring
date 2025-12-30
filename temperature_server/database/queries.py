@@ -15,7 +15,7 @@ JST = timezone(timedelta(hours=9))
 class TemperatureQueries:
     
     @staticmethod
-    def insert_reading(sensor_id, temperature, sensor_name=None, humidity=None):
+    def insert_reading(sensor_id, temperature, sensor_name=None, humidity=None, rssi=None, battery_mode=False):
         """温度データを挿入（ローカルタイムゾーン）"""
         with db_lock:
             conn = get_connection()
@@ -24,9 +24,9 @@ class TemperatureQueries:
             now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             cursor.execute("""
                 INSERT INTO temperatures 
-                (sensor_id, sensor_name, temperature, humidity, timestamp)
-                VALUES (?, ?, ?, ?, ?)
-            """, (sensor_id, sensor_name, temperature, humidity, now))
+                (sensor_id, sensor_name, temperature, humidity, rssi, battery_mode, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (sensor_id, sensor_name, temperature, humidity, rssi, int(battery_mode), now))
             conn.commit()
             conn.close()
     

@@ -21,12 +21,25 @@ project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
 from config import Config
-from database.models import init_database
+from database.models import init_database, migrate_add_rssi_battery
 from logger import setup_logger
 from app import create_app
 from services.serial_reader import create_serial_reader
 
 logger = setup_logger('main')
+
+# ===== メイン処理 =====
+def main():
+    """アプリケーション起動"""
+    logger.info("=" * 80)
+    logger.info("🚀 Temperature Server 起動")
+    logger.info("=" * 80)
+    
+    # 1. データベース初期化
+    logger.info("📊 データベースを初期化中...")
+    init_database()
+    migrate_add_rssi_battery()  # 既存DBにカラムを追加
+    logger.info("✓ データベース初期化完了")
 
 # グローバル変数（シリアルリーダー）
 serial_reader = None

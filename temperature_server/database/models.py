@@ -22,6 +22,8 @@ def init_database():
             sensor_name TEXT,
             temperature REAL NOT NULL,
             humidity REAL,
+            rssi INTEGER,
+            battery_mode INTEGER DEFAULT 0,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
@@ -94,6 +96,28 @@ def init_database():
         ('temperature_max', '40.0', '最高温度閾値（℃）'),
         ('alert_enabled', '1', 'アラート機能有効/無効（1=有効, 0=無効）')
     """)
+    
+    conn.commit()
+    conn.close()
+
+def migrate_add_rssi_battery():
+    """既存のテーブルに rssi と battery_mode カラムを追加"""
+    conn = sqlite3.connect(str(DB_PATH))
+    cursor = conn.cursor()
+    
+    try:
+        # rssi カラム追加
+        cursor.execute("ALTER TABLE temperatures ADD COLUMN rssi INTEGER")
+        print("✓ rssi カラムを追加しました")
+    except sqlite3.OperationalError:
+        print("※ rssi カラムは既に存在します")
+    
+    try:
+        # battery_mode カラム追加
+        cursor.execute("ALTER TABLE temperatures ADD COLUMN battery_mode INTEGER DEFAULT 0")
+        print("✓ battery_mode カラムを追加しました")
+    except sqlite3.OperationalError:
+        print("※ battery_mode カラムは既に存在します")
     
     conn.commit()
     conn.close()

@@ -41,7 +41,7 @@ def receive_temperature():
             }), 400
         
         sensor_id = data.get('device_id') or data.get('sensor_id')
-        temperature = data.get('temperature')
+        temperature = data.get('temperature') or data.get('temp')
         
         logger.info(f"バリデーション - sensor_id: {sensor_id}, temperature: {temperature}")
 
@@ -58,12 +58,14 @@ def receive_temperature():
             sensor_name = data.get('name') or data.get('sensor_name', 'Unknown')
             location = data.get('location', 'Not set')
             humidity = data.get('humidity')
+            rssi = data.get('rssi')  # WiFi信号強度
+            battery_mode = data.get('battery_mode', False)  # バッテリーモード
             
-            logger.info(f"DB挿入開始 - sensor_id: {sensor_id}, temp: {temperature}, name: {sensor_name}, humidity: {humidity}")
+            logger.info(f"DB挿入開始 - sensor_id: {sensor_id}, temp: {temperature}, name: {sensor_name}, humidity: {humidity}, rssi: {rssi}, battery_mode: {battery_mode}")
             
-            TemperatureQueries.insert_reading(sensor_id, temperature, sensor_name, humidity)
+            TemperatureQueries.insert_reading(sensor_id, temperature, sensor_name, humidity, rssi, battery_mode)
             
-            logger.info(f"✅ データ保存成功 - Device: {sensor_id}, Name: {sensor_name}, Location: {location}, Temp: {temperature}°C")
+            logger.info(f"✅ データ保存成功 - Device: {sensor_id}, Name: {sensor_name}, Location: {location}, Temp: {temperature}°C, RSSI: {rssi}dBm, Battery: {battery_mode}")
             logger.info("============================================================")
         except Exception as db_error:
             logger.error(f"❌ DB挿入エラー: {db_error}", exc_info=True)
@@ -75,6 +77,8 @@ def receive_temperature():
             "message": "Data received and stored",
             "device_id": sensor_id,
             "temperature": temperature,
+            "rssi": rssi,
+            "battery_mode": battery_mode,
             "timestamp": datetime.now().isoformat()
         }), 201
 

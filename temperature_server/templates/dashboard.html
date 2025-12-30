@@ -309,6 +309,19 @@
                 timeZone: 'Asia/Tokyo'
             });
 
+            // バッテリーステータスアイコン
+            const batteryIcon = sensor.battery_mode ? '🔋 バッテリー駆動' : '🔌 USB/AC給電';
+            
+            // WiFi信号強度インジケータ
+            let signalBars = '📶';
+            if (sensor.rssi) {
+                if (sensor.rssi >= -50) signalBars = '📶📶📶📶 (優)';
+                else if (sensor.rssi >= -60) signalBars = '📶📶📶 (良)';
+                else if (sensor.rssi >= -70) signalBars = '📶📶 (中)';
+                else if (sensor.rssi >= -80) signalBars = '📶 (弱)';
+                else signalBars = '❌ (接続不可)';
+            }
+
             return `
                 <div class="card">
                     <h3>${sensor.sensor_name || sensor.sensor_id}</h3>
@@ -317,6 +330,8 @@
                         <p><strong>センサーID:</strong> ${sensor.sensor_id}</p>
                         <p><strong>最終更新:</strong> ${timeStr}</p>
                         ${sensor.humidity ? `<p><strong>湿度:</strong> ${sensor.humidity.toFixed(1)}%</p>` : ''}
+                        ${sensor.rssi ? `<p><strong>WiFi信号:</strong> ${sensor.rssi} dBm ${signalBars}</p>` : ''}
+                        <p><strong>電源:</strong> ${batteryIcon}</p>
                     </div>
                 </div>
             `;
