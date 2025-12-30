@@ -3,10 +3,12 @@ temperature_server/app/routes/dashboard.py
 ダッシュボードルート
 """
 
-from flask import Blueprint, render_template, Response
+from flask import Blueprint, render_template, Response, request, jsonify
 from logger import setup_logger
 import sys
 from pathlib import Path
+import threading
+import time
 
 # パス設定
 project_root = Path(__file__).parent.parent.parent
@@ -14,6 +16,14 @@ sys.path.insert(0, str(project_root))
 
 logger = setup_logger(__name__)
 dashboard_bp = Blueprint('dashboard', __name__)
+
+# グローバル状態管理
+_camera_state = {
+    'resolution': (1280, 720),
+    'fps': 30,
+    'lock': threading.Lock(),
+    'stop_event': threading.Event(),
+}
 
 @dashboard_bp.route('/')
 def index():
@@ -43,23 +53,33 @@ def video_feed():
             logger.error("カメラを開くことができません")
             return "Error: カメラが見つかりません", 500
         
-        # カメラ設定
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-        cap.set(cv2.CAP_PROP_FPS, 30)
-        
         def generate_frames():
             """フレームジェネレータ"""
             frame_count = 0
             try:
-                while True:
+                while not _camera_state['stop_event'].is_set():
+                    # 現在の解像度設定を取得
+                    with _camera_state['lock']:
+                        width, height = _camera_state['resolution']
+                        fps = _camera_state['fps']
+                    
+                    # カメラ設定を更新
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+                    cap.set(cv2.CAP_PROP_FPS, fps)
+                    
                     ret, frame = cap.read()
                     if not ret:
                         logger.warning("フレーム読み込み失敗")
-                        break
+                        time.sleep(0.1)
+                        continue
                     
                     # JPEGエンコード
-                    ret, buffer = cv2.imencode('.jpg', frame)
+                    ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                    if not ret:
+                        logger.warning(f"JPEG エンコード失敗, frame shape: {frame.shape}")
+                        continue
+                    
                     frame_bytes = buffer.tobytes()
                     
                     # MJPEGストリーム形式で返す
@@ -75,6 +95,7 @@ def video_feed():
                 logger.error(f"ビデオフィード生成エラー: {e}")
             finally:
                 cap.release()
+                _camera_state['stop_event'].clear()
         
         logger.info("ビデオフィード開始")
         return Response(
@@ -87,6 +108,54 @@ def video_feed():
     except Exception as e:
         logger.error(f"ビデオフィードエラー: {e}")
         return f"Error: {str(e)}", 500
+
+@dashboard_bp.route('/video_feed/stop', methods=['GET', 'POST'])
+def stop_video_feed():
+    """ビデオフィード停止"""
+    with _camera_state['lock']:
+        _camera_state['stop_event'].set()
+    logger.info("ビデオフィード停止リクエスト")
+    return jsonify({'status': 'stopped'})
+
+
+@dashboard_bp.route('/video_feed/resolution', methods=['POST'])
+def change_resolution():
+    """解像度変更エンドポイント"""
+    try:
+        data = request.get_json()
+        if not data or 'resolution' not in data:
+            return jsonify({'status': 'error', 'message': '解像度が指定されていません'}), 400
+        
+        resolution_str = data['resolution']
+        
+        # 解像度マッピング
+        resolution_map = {
+            '360p': (640, 360),
+            '720p': (1280, 720),
+            '1080p': (1920, 1080),
+        }
+        
+        if resolution_str not in resolution_map:
+            return jsonify({'status': 'error', 'message': '無効な解像度です'}), 400
+        
+        new_resolution = resolution_map[resolution_str]
+        
+        # 既存ストリームを停止
+        with _camera_state['lock']:
+            _camera_state['stop_event'].set()
+            time.sleep(0.5)  # フレーム生成を停止させる時間
+            
+            # 解像度を更新
+            _camera_state['resolution'] = new_resolution
+            _camera_state['stop_event'].clear()
+        
+        logger.info(f"解像度変更: {resolution_str} ({new_resolution[0]}x{new_resolution[1]})")
+        return jsonify({'status': 'success', 'resolution': resolution_str})
+    
+    except Exception as e:
+        logger.error(f"解像度変更エラー: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 
 @dashboard_bp.route('/test')
 def test_api():
