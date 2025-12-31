@@ -82,8 +82,8 @@ class TemperatureQueries:
             conn = get_connection()
             cursor = conn.cursor()
             # ローカル時刻から指定時間前の時刻を計算（Raspberry Pi は Asia/Tokyo に設定済み）
-            # JST時刻で計算
-            since = (datetime.now(JST) - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
+            # ローカル時刻を使用（システムタイムゾーンに依存）
+            since = (datetime.now() - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
             cursor.execute("""
                 SELECT * FROM temperatures 
                 WHERE sensor_id = ? AND timestamp >= ?
@@ -100,8 +100,8 @@ class TemperatureQueries:
         with db_lock:
             conn = get_connection()
             cursor = conn.cursor()
-            # ローカル時刻から指定時間前の時刻を計算（JST時刻で計算）
-            since = (datetime.now(JST) - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
+            # ローカル時刻から指定時間前の時刻を計算
+            since = (datetime.now() - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
             cursor.execute("""
                 SELECT 
                     COUNT(*) as count,
@@ -116,6 +116,40 @@ class TemperatureQueries:
             if result:
                 return dict(result)
             return {}
+    
+    @staticmethod
+    def get_range_batch(sensor_ids, hours=24):
+        """複数センサーの指定時間範囲のデータを一括取得（高速化）"""
+        if not sensor_ids:
+            return {}
+        
+        with db_lock:
+            conn = get_connection()
+            cursor = conn.cursor()
+            # ローカル時刻から指定時間前の時刻を計算
+            since = (datetime.now() - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
+            
+            # プレースホルダーを生成
+            placeholders = ','.join(['?' for _ in sensor_ids])
+            query = f"""
+                SELECT * FROM temperatures 
+                WHERE sensor_id IN ({placeholders}) AND timestamp >= ?
+                ORDER BY sensor_id, timestamp ASC
+            """
+            
+            cursor.execute(query, tuple(sensor_ids) + (since,))
+            rows = cursor.fetchall()
+            conn.close()
+            
+            # センサーIDごとにグループ化
+            results = {}
+            for row in rows:
+                sensor_id = row['sensor_id']
+                if sensor_id not in results:
+                    results[sensor_id] = []
+                results[sensor_id].append(dict(row))
+            
+            return results
 
 class SystemLogQueries:
     
@@ -155,6 +189,32 @@ class SystemLogQueries:
             cursor = conn.cursor()
             since = (datetime.now() - timedelta(days=days)).isoformat()
             cursor.execute("DELETE FROM system_logs WHERE timestamp < ?", (since,))
+            deleted = cursor.rowcount
+            conn.commit()
+            conn.close()
+            return deleted
+
+
+    @staticmethod
+    def delete_old_records(days_old=30):
+        """指定日数以前のデータを削除"""
+        with db_lock:
+            conn = get_connection()
+            cursor = conn.cursor()
+            since = (datetime.now() - timedelta(days=days_old)).strftime('%Y-%m-%d %H:%M:%S')
+            cursor.execute("DELETE FROM temperatures WHERE timestamp < ?", (since,))
+            deleted = cursor.rowcount
+            conn.commit()
+            conn.close()
+            return deleted
+
+    @staticmethod
+    def delete_test_sensors():
+        """テストセンサーのデータを削除"""
+        with db_lock:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM temperatures WHERE sensor_id LIKE ?", ('%TEST%',))
             deleted = cursor.rowcount
             conn.commit()
             conn.close()

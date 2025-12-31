@@ -68,7 +68,12 @@
             videoCanvas.height = height;
         }
 
-        // MJPEGストリームを読み取り、Canvasに描画
+        // MJPEGストリームを読み取り、Canvasに描画（高速化・メモリ最適化）
+        let pendingImage = null; // 描画待ちの画像を1つだけ保持
+        let lastFrameTime = 0;
+        const TARGET_FPS = 30;
+        const FRAME_INTERVAL = 1000 / TARGET_FPS;
+        
         async function streamFrames() {
             try {
                 const streamUrl = '/video_feed?t=' + new Date().getTime() + '&v=' + STREAM_VERSION;
@@ -83,6 +88,10 @@
                 streamController = reader;
                 let buffer = new Uint8Array(0);
                 
+                // 境界マーカーを事前エンコード（高速化）
+                const boundary = new TextEncoder().encode('--frame\r\n');
+                const headerSeparator = new TextEncoder().encode('\r\n\r\n');
+                
                 while (isStreaming) {
                     const {done, value} = await reader.read();
                     if (done) {
@@ -90,14 +99,13 @@
                         break;
                     }
                     
-                    // バッファに追加
+                    // バッファに追加（より効率的な方法）
                     const newBuffer = new Uint8Array(buffer.length + value.length);
-                    newBuffer.set(buffer);
+                    newBuffer.set(buffer, 0);
                     newBuffer.set(value, buffer.length);
                     buffer = newBuffer;
                     
                     // MJPEG境界を探す: --frame\r\n
-                    const boundary = new TextEncoder().encode('--frame\r\n');
                     let boundaryIndex = findBytes(buffer, boundary);
                     
                     while (boundaryIndex !== -1) {
@@ -115,21 +123,45 @@
                         const frameData = buffer.slice(frameStart, frameEnd);
                         
                         // Content-Type と Content-Length をスキップしてJPEGデータを取得
-                        const headerEnd = findBytes(frameData, new TextEncoder().encode('\r\n\r\n'));
+                        const headerEnd = findBytes(frameData, headerSeparator);
                         if (headerEnd !== -1) {
                             const jpegStart = headerEnd + 4;
                             const jpegData = frameData.slice(jpegStart);
                             
-                            // Blobを作成して画像として読み込む
-                            const blob = new Blob([jpegData], {type: 'image/jpeg'});
-                            const img = new Image();
-                            img.onload = function() {
-                                ctx.drawImage(img, 0, 0, videoCanvas.width, videoCanvas.height);
-                            };
-                            img.onerror = function() {
-                                console.warn('画像読み込みエラー');
-                            };
-                            img.src = URL.createObjectURL(blob);
+                            // FPS制御（フレームスキップ）
+                            const now = performance.now();
+                            if (now - lastFrameTime >= FRAME_INTERVAL) {
+                                lastFrameTime = now;
+                                
+                                // 前の画像のURLを解放（メモリリーク防止）
+                                if (pendingImage && pendingImage.src && pendingImage.src.startsWith('blob:')) {
+                                    URL.revokeObjectURL(pendingImage.src);
+                                }
+                                
+                                // Blobを作成して画像として読み込む
+                                const blob = new Blob([jpegData], {type: 'image/jpeg'});
+                                const img = new Image();
+                                img.onload = function() {
+                                    // requestAnimationFrameで描画を最適化
+                                    requestAnimationFrame(() => {
+                                        if (isStreaming) {
+                                            ctx.drawImage(img, 0, 0, videoCanvas.width, videoCanvas.height);
+                                        }
+                                        // 描画後にURLを解放
+                                        if (img.src && img.src.startsWith('blob:')) {
+                                            URL.revokeObjectURL(img.src);
+                                        }
+                                    });
+                                };
+                                img.onerror = function() {
+                                    console.warn('画像読み込みエラー');
+                                    if (img.src && img.src.startsWith('blob:')) {
+                                        URL.revokeObjectURL(img.src);
+                                    }
+                                };
+                                img.src = URL.createObjectURL(blob);
+                                pendingImage = img;
+                            }
                         }
                         
                         // 処理済みデータを削除
@@ -143,6 +175,11 @@
                 errorMessage.style.display = 'block';
                 isStreaming = false;
                 toggleBtn.textContent = '配信開始';
+            } finally {
+                // クリーンアップ：メモリリーク防止
+                if (pendingImage && pendingImage.src && pendingImage.src.startsWith('blob:')) {
+                    URL.revokeObjectURL(pendingImage.src);
+                }
             }
         }
         
@@ -245,6 +282,13 @@
                     streamController.cancel();
                 }
                 videoCanvas.style.display = 'none';
+                
+                // メモリクリーンアップ
+                if (pendingImage && pendingImage.src && pendingImage.src.startsWith('blob:')) {
+                    URL.revokeObjectURL(pendingImage.src);
+                    pendingImage = null;
+                }
+                
                 fetch('/video_feed/stop')
                     .then(() => {
                         errorMessage.style.display = 'none';
@@ -257,6 +301,7 @@
             } else {
                 // ストリームを開始
                 console.log('ストリームを開始します');
+                lastFrameTime = 0; // フレームタイマーをリセット
                 startStream();
             }
         }

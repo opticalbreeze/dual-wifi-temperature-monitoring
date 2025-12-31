@@ -5,24 +5,53 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>管理画面</title>
     <style>
-        body { margin: 0; padding: 20px; font-family: sans-serif; background: #f0f0f0; }
-        .container { max-width: 1200px; margin: 0 auto; }
-        .nav { text-align: center; margin-bottom: 30px; }
-        .nav a { margin: 0 10px; padding: 10px 20px; background: #667eea; color: white; text-decoration: none; border-radius: 5px; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f5f5f5; padding: 15px; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        .nav { display: flex; gap: 10px; justify-content: center; margin-bottom: 20px; flex-wrap: wrap; }
+        .nav a { padding: 10px 20px; background: #667eea; color: white; text-decoration: none; border-radius: 6px; font-weight: 600; transition: 0.3s; }
         .nav a.active { background: #764ba2; }
-        .panel { background: white; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
-        .panel h3 { color: #667eea; margin-top: 0; }
-        .button-group { display: flex; gap: 10px; flex-wrap: wrap; }
-        button { padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: 600; transition: 0.3s; }
+        .nav a:hover { opacity: 0.9; }
+        h1 { text-align: center; color: #333; margin-bottom: 25px; }
+        .tab-buttons { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+        .tab-btn { padding: 10px 16px; border: 2px solid #ddd; background: white; color: #333; cursor: pointer; border-radius: 6px; font-weight: 600; transition: 0.3s; }
+        .tab-btn.active { background: #667eea; color: white; border-color: #667eea; }
+        .tab-btn:hover { border-color: #667eea; }
+        .panel { background: white; border-radius: 10px; padding: 20px; margin-bottom: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); display: none; }
+        .panel.active { display: block; }
+        .panel h3 { color: #667eea; margin-bottom: 15px; font-size: 1.2em; }
+        .button-group { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px; }
+        button { padding: 10px 18px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; transition: 0.3s; font-size: 0.95em; }
         .btn-primary { background: #4caf50; color: white; }
         .btn-primary:hover { background: #45a049; }
         .btn-danger { background: #f44336; color: white; }
         .btn-danger:hover { background: #da190b; }
         .btn-info { background: #2196F3; color: white; }
         .btn-info:hover { background: #0b7dda; }
-        .status-box { background: #f9f9f9; padding: 15px; border-left: 4px solid #4caf50; margin: 10px 0; border-radius: 4px; }
+        .btn-small { padding: 6px 12px; font-size: 0.85em; }
+        .status-box { background: #f9f9f9; padding: 12px 15px; border-left: 4px solid #4caf50; margin: 10px 0; border-radius: 4px; }
         .status-box.warn { border-left-color: #ff9800; }
         .status-box.error { border-left-color: #f44336; }
+        .status-value { font-size: 1.3em; font-weight: bold; color: #667eea; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+        @media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr; } }
+        .sensor-card { background: #f9f9f9; padding: 12px; border-radius: 6px; border: 1px solid #eee; margin: 8px 0; }
+        .sensor-card input { width: 100%; padding: 6px; margin: 6px 0; border: 1px solid #ddd; border-radius: 4px; }
+        .log-viewer { background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 6px; font-family: 'Courier New', monospace; font-size: 0.9em; max-height: 300px; overflow-y: auto; }
+        .log-error { color: #f44336; }
+        .log-warn { color: #ff9800; }
+        .log-info { color: #4caf50; }
+        .input-group { margin-bottom: 15px; }
+        input[type="text"], input[type="number"], select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.95em; }
+        label { display: block; margin-bottom: 5px; color: #333; font-weight: 600; }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; }
+        .modal.show { display: flex; }
+        .modal-content { background: white; padding: 30px; border-radius: 10px; max-width: 500px; width: 90%; }
+        .modal-content h2 { margin-bottom: 20px; color: #667eea; }
+        .chart { width: 100%; height: 200px; background: #f0f0f0; border-radius: 6px; margin-top: 10px; display: flex; align-items: flex-end; gap: 2px; padding: 10px; }
+        .chart-bar { flex: 1; background: #667eea; border-radius: 3px 3px 0 0; min-height: 20px; }
+        .success-msg { background: #e8f5e9; color: #2e7d32; padding: 12px; border-radius: 6px; margin-bottom: 15px; border-left: 4px solid #4caf50; }
+        .error-msg { background: #ffebee; color: #c62828; padding: 12px; border-radius: 6px; margin-bottom: 15px; border-left: 4px solid #f44336; }
     </style>
 </head>
 <body>
@@ -33,73 +62,292 @@
             <a href="/management" class="active">管理画面</a>
         </div>
 
-        <div class="panel">
+        <h1>🛠️ システム管理</h1>
+
+        <div class="tab-buttons">
+            <button class="tab-btn active" onclick="switchTab('status')">📊 ステータス</button>
+            <button class="tab-btn" onclick="switchTab('sensors')">📡 センサー管理</button>
+            <button class="tab-btn" onclick="switchTab('performance')">⚡ パフォーマンス</button>
+            <button class="tab-btn" onclick="switchTab('logs')">📋 ログ</button>
+            <button class="tab-btn" onclick="switchTab('data')">💾 データ管理</button>
+            <button class="tab-btn" onclick="switchTab('test')">🧪 テストセンサー</button>
+        </div>
+
+        <!-- ステータスタブ -->
+        <div id="status" class="panel active">
             <h3>🔍 システムステータス</h3>
-            <div class="status-box">
-                <strong>メモリ使用率:</strong> 45% <button class="btn-danger" onclick="clearCache()">キャッシュ削除</button>
-            </div>
-            <div class="status-box">
-                <strong>ディスク使用率:</strong> 62%
-            </div>
-            <div class="status-box">
-                <strong>WiFi AP:</strong> 稼働中 (RaspberryPi_Temperature)
-            </div>
-            <div class="status-box">
-                <strong>インターネット:</strong> 接続 (192.168.11.57)
-            </div>
+            <div id="status-content">読み込み中...</div>
         </div>
 
-        <div class="panel">
-            <h3>📡 WiFi 管理</h3>
+        <!-- センサー管理タブ -->
+        <div id="sensors" class="panel">
+            <h3>📡 接続センサー</h3>
             <div class="button-group">
-                <button class="btn-info" onclick="scanNetworks()">ネットワークスキャン</button>
-                <button class="btn-primary" onclick="reconnectWiFi()">再接続</button>
-                <button class="btn-info" onclick="showWiFiStatus()">詳細表示</button>
+                <button class="btn-primary" onclick="refreshSensors()">🔄 更新</button>
+                <button class="btn-info" onclick="showAddSensorModal()">➕ センサー追加</button>
             </div>
+            <div id="sensors-content">読み込み中...</div>
         </div>
 
-        <div class="panel">
-            <h3>🎥 ビデオストリーミング</h3>
+        <!-- パフォーマンスタブ -->
+        <div id="performance" class="panel">
+            <h3>⚡ パフォーマンス監視</h3>
+            <div class="grid-2">
+                <div>
+                    <h4>CPU使用率</h4>
+                    <div class="chart" id="cpu-chart"></div>
+                </div>
+                <div>
+                    <h4>メモリ使用率</h4>
+                    <div class="chart" id="memory-chart"></div>
+                </div>
+            </div>
+            <div class="status-box">
+                <strong>ディスク:</strong> <span id="disk-usage" class="status-value">-</span>
+            </div>
+            <div class="status-box">
+                <strong>ネットワーク遅延:</strong> <span id="network-ping" class="status-value">-</span>
+            </div>
+            <button class="btn-info" onclick="measurePerformance()">測定開始</button>
+        </div>
+
+        <!-- ログタブ -->
+        <div id="logs" class="panel">
+            <h3>📋 システムログ</h3>
             <div class="button-group">
-                <button class="btn-primary" onclick="startStream()">配信開始</button>
-                <button class="btn-danger" onclick="stopStream()">配信停止</button>
-                <button class="btn-info" onclick="showStreamStats()">統計表示</button>
+                <button class="btn-info" onclick="loadLogs()">🔄 更新</button>
+                <select id="log-filter" onchange="filterLogs(this.value)" style="width: auto; padding: 8px;">
+                    <option value="">全て</option>
+                    <option value="error">エラー</option>
+                    <option value="warn">警告</option>
+                    <option value="info">情報</option>
+                </select>
+                <button class="btn-primary" onclick="exportLogs()">📥 エクスポート</button>
             </div>
+            <div class="log-viewer" id="log-content">ログを読み込み中...</div>
         </div>
 
-        <div class="panel">
-            <h3>⚙️ サービス管理</h3>
-            <div class="button-group">
-                <button class="btn-info" onclick="restartWiFi()">WiFi Manager 再起動</button>
-                <button class="btn-info" onclick="restartStream()">Stream Service 再起動</button>
-                <button class="btn-danger" onclick="rebootSystem()">Raspberry Pi 再起動</button>
-            </div>
-        </div>
-
-        <div class="panel">
+        <!-- データ管理タブ -->
+        <div id="data" class="panel">
             <h3>💾 データ管理</h3>
+            <div class="input-group">
+                <label>古いデータ削除（指定日数以前）</label>
+                <div style="display: flex; gap: 10px;">
+                    <input type="number" id="days-old" min="1" max="365" value="30" style="flex: 1;" placeholder="日数">
+                    <button class="btn-danger" onclick="deleteOldData()">削除</button>
+                </div>
+            </div>
+            <div id="data-message"></div>
             <div class="button-group">
-                <button class="btn-primary" onclick="backupDatabase()">バックアップ</button>
-                <button class="btn-danger" onclick="clearOldData()">古いデータ削除</button>
-                <button class="btn-info" onclick="exportData()">CSV エクスポート</button>
+                <button class="btn-primary" onclick="backupDatabase()">💾 バックアップ作成</button>
+                <button class="btn-info" onclick="exportCSV()">📊 CSV エクスポート</button>
+            </div>
+        </div>
+
+        <!-- テストセンサータブ -->
+        <div id="test" class="panel">
+            <h3>🧪 テストセンサー管理</h3>
+            <div class="button-group">
+                <button class="btn-primary" onclick="showAddTestSensorModal()">➕ テストセンサー追加</button>
+                <button class="btn-danger" onclick="deleteAllTestSensors()">🗑️ 全テスト削除</button>
+            </div>
+            <div id="test-sensors-content">読み込み中...</div>
+        </div>
+    </div>
+
+    <!-- センサー追加モーダル -->
+    <div id="add-sensor-modal" class="modal">
+        <div class="modal-content">
+            <h2>センサーを追加</h2>
+            <div class="input-group">
+                <label>センサーID</label>
+                <input type="text" id="sensor-id" placeholder="例: ESP32_NEW_01">
+            </div>
+            <div class="input-group">
+                <label>センサー名</label>
+                <input type="text" id="sensor-name" placeholder="例: 居間">
+            </div>
+            <div class="button-group">
+                <button class="btn-primary" onclick="addSensor()">追加</button>
+                <button class="btn-info" onclick="closeModal('add-sensor-modal')">キャンセル</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- テストセンサー追加モーダル -->
+    <div id="add-test-sensor-modal" class="modal">
+        <div class="modal-content">
+            <h2>テストセンサーを追加</h2>
+            <div class="input-group">
+                <label>センサー名</label>
+                <input type="text" id="test-sensor-name" placeholder="例: TEST_01">
+            </div>
+            <div class="input-group">
+                <label>初期温度 (°C)</label>
+                <input type="number" id="test-sensor-temp" min="-50" max="100" value="25" step="0.1">
+            </div>
+            <div class="button-group">
+                <button class="btn-primary" onclick="addTestSensor()">追加</button>
+                <button class="btn-info" onclick="closeModal('add-test-sensor-modal')">キャンセル</button>
             </div>
         </div>
     </div>
 
     <script>
-        function clearCache() { console.log('Clearing cache...'); alert('キャッシュを削除しました'); }
-        function scanNetworks() { console.log('Scanning networks...'); alert('スキャン開始'); }
-        function reconnectWiFi() { console.log('Reconnecting WiFi...'); alert('再接続します'); }
-        function showWiFiStatus() { console.log('WiFi status'); alert('WiFi ステータス表示'); }
-        function startStream() { console.log('Starting stream...'); alert('配信開始'); }
-        function stopStream() { console.log('Stopping stream...'); alert('配信停止'); }
-        function showStreamStats() { console.log('Stream stats'); alert('統計表示'); }
-        function restartWiFi() { console.log('Restarting WiFi...'); alert('WiFi Manager を再起動します'); }
-        function restartStream() { console.log('Restarting stream...'); alert('Stream Service を再起動します'); }
-        function rebootSystem() { if(confirm('本当に再起動しますか?')) { console.log('Rebooting...'); alert('再起動します'); } }
-        function backupDatabase() { console.log('Backing up...'); alert('バックアップを作成しました'); }
-        function clearOldData() { console.log('Clearing old data...'); alert('古いデータを削除しました'); }
-        function exportData() { console.log('Exporting...'); alert('CSV を作成しました'); }
+        function switchTab(tabName) {
+            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+            
+            if (tabName === 'status') loadStatus();
+            if (tabName === 'sensors') refreshSensors();
+            if (tabName === 'logs') loadLogs();
+            if (tabName === 'test') loadTestSensors();
+        }
+
+        async function loadStatus() {
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+                const html = `
+                    <div class="status-box">
+                        <strong>接続センサー:</strong> <span class="status-value">${data.connected_sensors}</span> 台
+                    </div>
+                    <div class="status-box">
+                        <strong>メモリ:</strong> <span class="status-value">${data.memory_percent}%</span>
+                    </div>
+                    <div class="status-box">
+                        <strong>ディスク:</strong> <span class="status-value">${data.disk_percent}%</span>
+                    </div>
+                    <div class="status-box ${data.uptime_seconds > 3600 ? '' : 'warn'}">
+                        <strong>稼働時間:</strong> <span class="status-value">${(data.uptime_seconds / 3600).toFixed(1)}時間</span>
+                    </div>
+                `;
+                document.getElementById('status-content').innerHTML = html;
+            } catch (e) {
+                document.getElementById('status-content').innerHTML = '<div class="error-msg">ステータス取得失敗: ' + e.message + '</div>';
+            }
+        }
+
+        async function refreshSensors() {
+            try {
+                const res = await fetch('/api/sensors');
+                const data = await res.json();
+                let html = '';
+                data.sensors.forEach(sensor => {
+                    html += `
+                        <div class="sensor-card">
+                            <strong>${sensor.sensor_name || sensor.sensor_id}</strong>
+                            <input type="text" placeholder="センサー名" value="${sensor.sensor_name || ''}" onchange="updateSensorName('${sensor.sensor_id}', this.value)">
+                            <div><small>ID: ${sensor.sensor_id} | 温度: ${sensor.temperature}°C | 更新: ${new Date(sensor.timestamp).toLocaleString('ja-JP')}</small></div>
+                            <button class="btn-danger btn-small" onclick="deleteSensor('${sensor.sensor_id}')">削除</button>
+                        </div>
+                    `;
+                });
+                document.getElementById('sensors-content').innerHTML = html || '<div class="error-msg">センサーが接続されていません</div>';
+            } catch (e) {
+                document.getElementById('sensors-content').innerHTML = '<div class="error-msg">エラー: ' + e.message + '</div>';
+            }
+        }
+
+        async function loadLogs() {
+            try {
+                const res = await fetch('/api/logs?limit=50');
+                const data = await res.json();
+                let html = '';
+                data.logs.forEach(log => {
+                    const className = log.level === 'ERROR' ? 'log-error' : log.level === 'WARN' ? 'log-warn' : 'log-info';
+                    html += `<div class="${className}">[${log.level}] ${new Date(log.timestamp).toLocaleTimeString()} - ${log.message}</div>`;
+                });
+                document.getElementById('log-content').innerHTML = html || 'ログなし';
+            } catch (e) {
+                document.getElementById('log-content').innerHTML = `<div class="log-error">ログ読み込み失敗: ${e.message}</div>`;
+            }
+        }
+
+        async function deleteOldData() {
+            const days = document.getElementById('days-old').value;
+            if (!confirm(`${days}日以前のデータを削除しますか？`)) return;
+            try {
+                const res = await fetch('/api/delete-old-data', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ days_old: parseInt(days) })
+                });
+                const data = await res.json();
+                const msg = `<div class="success-msg">✓ ${data.deleted_count}件を削除しました</div>`;
+                document.getElementById('data-message').innerHTML = msg;
+            } catch (e) {
+                const msg = `<div class="error-msg">✗ エラー: ${e.message}</div>`;
+                document.getElementById('data-message').innerHTML = msg;
+            }
+        }
+
+        async function loadTestSensors() {
+            try {
+                const res = await fetch('/api/sensors');
+                const data = await res.json();
+                const testSensors = data.sensors.filter(s => s.sensor_id.includes('TEST'));
+                let html = '';
+                testSensors.forEach(sensor => {
+                    html += `
+                        <div class="sensor-card">
+                            <strong>${sensor.sensor_name || sensor.sensor_id}</strong>
+                            <div>${sensor.temperature}°C</div>
+                            <button class="btn-danger btn-small" onclick="deleteTestSensor('${sensor.sensor_id}')">削除</button>
+                        </div>
+                    `;
+                });
+                document.getElementById('test-sensors-content').innerHTML = html || '<div class="error-msg">テストセンサーなし</div>';
+            } catch (e) {
+                document.getElementById('test-sensors-content').innerHTML = '<div class="error-msg">エラー: ' + e.message + '</div>';
+            }
+        }
+
+        async function deleteAllTestSensors() {
+            if (!confirm('全てのテストセンサーデータを削除しますか？')) return;
+            try {
+                const res = await fetch('/api/delete-test-sensors', { method: 'POST' });
+                const data = await res.json();
+                alert(data.message || '削除完了');
+                loadTestSensors();
+            } catch (e) {
+                alert('エラー: ' + e.message);
+            }
+        }
+
+        function showAddSensorModal() {
+            document.getElementById('add-sensor-modal').classList.add('show');
+        }
+
+        function showAddTestSensorModal() {
+            document.getElementById('add-test-sensor-modal').classList.add('show');
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.remove('show');
+        }
+
+        async function measurePerformance() {
+            const start = performance.now();
+            await fetch('/api/status');
+            const ping = ((performance.now() - start) / 2).toFixed(0);
+            document.getElementById('network-ping').textContent = ping + 'ms';
+        }
+
+        function backupDatabase() { alert('バックアップ機能は準備中です'); }
+        function exportCSV() { alert('CSV エクスポート機能は準備中です'); }
+        function exportLogs() { alert('ログエクスポート機能は準備中です'); }
+        function updateSensorName(id, name) { console.log('Update:', id, name); }
+        function deleteSensor(id) { if(confirm('削除しますか？')) { console.log('Delete:', id); } }
+        function deleteTestSensor(id) { if(confirm('削除しますか？')) { console.log('Delete:', id); } }
+        function addSensor() { alert('センサー追加機能は準備中です'); closeModal('add-sensor-modal'); }
+        function addTestSensor() { alert('テストセンサー追加機能は準備中です'); closeModal('add-test-sensor-modal'); }
+        function filterLogs(level) { console.log('Filter:', level); }
+
+        // 初期ロード
+        window.onload = () => loadStatus();
     </script>
 </body>
 </html>

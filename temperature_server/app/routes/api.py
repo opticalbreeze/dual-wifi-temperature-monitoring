@@ -140,6 +140,7 @@ def get_status():
     try:
         import psutil
         mem = psutil.virtual_memory()
+        uptime = datetime.now().timestamp() - psutil.Process(1).create_time()
 
         sensors = TemperatureQueries.get_all_latest()
 
@@ -147,10 +148,104 @@ def get_status():
             "status": "online",
             "timestamp": str(datetime.now()),
             "connected_sensors": len(sensors),
-            "memory_usage_percent": mem.percent,
-            "disk_usage_percent": psutil.disk_usage('/').percent
+            "memory_percent": round(mem.percent, 1),
+            "disk_percent": round(psutil.disk_usage('/').percent, 1),
+            "uptime_seconds": int(uptime)
         })
     except Exception as e:
         logger.error(f"Error getting status: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@api_bp.route('/logs', methods=['GET'])
+def get_logs():
+    """ログを取得"""
+    try:
+        limit = request.args.get('limit', 50, type=int)
+        logs = SystemLogQueries.get_recent_logs(limit)
+        return jsonify({
+            "status": "success",
+            "logs": logs,
+            "count": len(logs)
+        })
+    except Exception as e:
+        logger.error(f"Error fetching logs: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@api_bp.route('/delete-old-data', methods=['POST'])
+def delete_old_data():
+    """指定日数以前のデータを削除"""
+    try:
+        data = request.get_json()
+        days_old = data.get('days_old', 30)
+        logger.info(f"Deleting data older than {days_old} days")
+        
+        deleted_count = TemperatureQueries.delete_old_records(days_old)
+        
+        return jsonify({
+            "status": "success",
+            "deleted_count": deleted_count,
+            "message": f"{deleted_count}件のデータを削除しました"
+        })
+    except Exception as e:
+        logger.error(f"Error deleting old data: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@api_bp.route('/delete-test-sensors', methods=['POST'])
+def delete_test_sensors():
+    """テストセンサーのデータを削除"""
+    try:
+        deleted_count = TemperatureQueries.delete_test_sensors()
+        logger.info(f"Deleted {deleted_count} test sensor records")
+        
+        return jsonify({
+            "status": "success",
+            "deleted_count": deleted_count,
+            "message": f"テストセンサーデータ {deleted_count}件を削除しました"
+        })
+    except Exception as e:
+        logger.error(f"Error deleting test sensors: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@api_bp.route('/temperature/batch', methods=['POST'])
+def get_temperature_batch():
+    """複数センサーのデータを一括取得（高速化）"""
+    try:
+        data = request.get_json()
+        if not data or 'sensor_ids' not in data:
+            return jsonify({'status': 'error', 'message': 'sensor_idsが指定されていません'}), 400
+        
+        sensor_ids = data.get('sensor_ids', [])
+        hours = data.get('hours', 24, type=float)
+        
+        if not isinstance(sensor_ids, list) or len(sensor_ids) == 0:
+            return jsonify({'status': 'error', 'message': 'sensor_idsは空でないリストである必要があります'}), 400
+        
+        logger.debug(f"GET /api/temperature/batch - sensor_ids={sensor_ids}, hours={hours}")
+        
+        # バッチ取得
+        readings_map = TemperatureQueries.get_range_batch(sensor_ids, hours)
+        
+        # 各センサーの統計も取得
+        results = {}
+        for sensor_id in sensor_ids:
+            readings = readings_map.get(sensor_id, [])
+            stats = TemperatureQueries.get_statistics(sensor_id, hours)
+            results[sensor_id] = {
+                "readings": readings,
+                "statistics": stats
+            }
+        
+        logger.debug(f"GET /api/temperature/batch - Found data for {len(results)} sensors")
+        
+        return jsonify({
+            "status": "success",
+            "data": results,
+            "count": len(results)
+        })
+    except Exception as e:
+        logger.error(f"Error fetching batch temperature data: {e}", exc_info=True)
         return jsonify({"status": "error", "message": str(e)}), 500
 

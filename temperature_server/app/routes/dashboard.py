@@ -56,29 +56,31 @@ def video_feed():
         def generate_frames():
             """フレームジェネレータ"""
             frame_count = 0
+            last_width, last_height, last_fps = None, None, None
+            jpeg_quality = 80  # 品質設定（毎回変更しない）
+            
             try:
                 while not _camera_state['stop_event'].is_set():
-                    # 現在の解像度設定を取得
+                    # 解像度・FPS設定が変わった時のみ更新（毎フレーム確認は避ける）
                     with _camera_state['lock']:
                         width, height = _camera_state['resolution']
                         fps = _camera_state['fps']
                     
-                    # カメラ設定を更新
-                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-                    cap.set(cv2.CAP_PROP_FPS, fps)
+                    if (width, height, fps) != (last_width, last_height, last_fps):
+                        cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+                        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+                        cap.set(cv2.CAP_PROP_FPS, fps)
+                        last_width, last_height, last_fps = width, height, fps
+                        logger.info(f"カメラ設定更新: {width}x{height}, {fps}FPS")
                     
                     ret, frame = cap.read()
                     if not ret:
-                        logger.warning("フレーム読み込み失敗")
-                        time.sleep(0.1)
-                        continue
+                        continue  # スキップ（sleep削除）
                     
                     # JPEGエンコード
-                    ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                    ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality])
                     if not ret:
-                        logger.warning(f"JPEG エンコード失敗, frame shape: {frame.shape}")
-                        continue
+                        continue  # スキップ
                     
                     frame_bytes = buffer.tobytes()
                     
@@ -89,8 +91,6 @@ def video_feed():
                            b'\r\n' + frame_bytes + b'\r\n')
                     
                     frame_count += 1
-                    if frame_count % 100 == 0:
-                        logger.debug(f"ビデオフィード: {frame_count}フレーム送信")
             except Exception as e:
                 logger.error(f"ビデオフィード生成エラー: {e}")
             finally:

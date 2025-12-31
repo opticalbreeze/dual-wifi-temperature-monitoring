@@ -286,13 +286,14 @@
             });
         }
 
-        // 期間選択ボタンのイベント
+        // 期間選択ボタンのイベント（デバウンス適用）
         document.querySelectorAll('.time-range-btn').forEach(btn => {
             btn.addEventListener('click', function() {
                 document.querySelectorAll('.time-range-btn').forEach(b => b.classList.remove('active'));
                 this.classList.add('active');
                 currentHours = parseFloat(this.dataset.hours);  // parseFloatに変更（0.5時間対応）
-                updateChart();
+                formatLabelCache.clear(); // キャッシュをクリア
+                debouncedUpdateChart();
             });
         });
 
@@ -373,7 +374,48 @@
             `;
         }
 
-        // グラフデータを更新
+        // ラベルフォーマット関数（期間に応じた表示形式、最適化）
+        const formatLabelCache = new Map();
+        function formatLabel(date, hours) {
+            const cacheKey = `${date.getTime()}-${hours}`;
+            if (formatLabelCache.has(cacheKey)) {
+                return formatLabelCache.get(cacheKey);
+            }
+            
+            let formatted;
+            if (hours <= 1) {
+                formatted = date.toLocaleTimeString('ja-JP', { 
+                    hour: '2-digit', minute: '2-digit', second: hours <= 0.5 ? '2-digit' : undefined,
+                    timeZone: 'Asia/Tokyo'
+                });
+            } else if (hours <= 24) {
+                formatted = date.toLocaleTimeString('ja-JP', { 
+                    hour: '2-digit', minute: '2-digit',
+                    timeZone: 'Asia/Tokyo'
+                });
+            } else if (hours <= 168) {
+                formatted = date.toLocaleString('ja-JP', { 
+                    month: '2-digit', day: '2-digit',
+                    hour: '2-digit', minute: '2-digit',
+                    timeZone: 'Asia/Tokyo'
+                });
+            } else {
+                formatted = date.toLocaleDateString('ja-JP', { 
+                    month: '2-digit', day: '2-digit',
+                    timeZone: 'Asia/Tokyo'
+                });
+            }
+            
+            // キャッシュサイズを制限（メモリリーク防止）
+            if (formatLabelCache.size > 1000) {
+                const firstKey = formatLabelCache.keys().next().value;
+                formatLabelCache.delete(firstKey);
+            }
+            formatLabelCache.set(cacheKey, formatted);
+            return formatted;
+        }
+
+        // グラフデータを更新（高速化：並列リクエスト）
         async function updateChart() {
             if (!temperatureChart) return;
 
@@ -387,109 +429,56 @@
                 }
 
                 const datasets = [];
-                const allLabels = new Set();
                 const sensorDataMap = {};
                 const allTemps = [];
-                const sensorsWithoutData = [];
 
-                // 各センサーのデータを取得
-                for (let i = 0; i < sensorsData.sensors.length; i++) {
-                    const sensor = sensorsData.sensors[i];
-                    try {
-                        const historyResponse = await fetch(`/api/temperature/${sensor.sensor_id}?hours=${currentHours}`);
-                        if (!historyResponse.ok) {
-                            console.error(`Failed to fetch history for ${sensor.sensor_id}: ${historyResponse.status}`);
-                            continue;
-                        }
-                        const historyData = await historyResponse.json();
-                        
-                        if (historyData.readings && historyData.readings.length > 0) {
-                            console.log(`Found ${historyData.readings.length} readings for ${sensor.sensor_id}`);
-                            // データを時系列順に並べ替え（APIからはASCで返されるが念のため）
-                            const sortedReadings = historyData.readings.sort((a, b) => {
-                                return new Date(a.timestamp) - new Date(b.timestamp);
-                            });
-                            
-                            const dataPoints = [];
-                            
-                            sortedReadings.forEach(reading => {
-                                const date = new Date(reading.timestamp);
-                                // 期間に応じてラベル形式を変更
-                                let label;
-                                if (currentHours <= 0.5) {
-                                    // 30分: 時:分:秒
-                                    label = date.toLocaleTimeString('ja-JP', { 
-                                        hour: '2-digit', 
-                                        minute: '2-digit',
-                                        second: '2-digit',
-                                        timeZone: 'Asia/Tokyo'
-                                    });
-                                } else if (currentHours <= 1) {
-                                    // 1時間: 時:分:秒
-                                    label = date.toLocaleTimeString('ja-JP', { 
-                                        hour: '2-digit', 
-                                        minute: '2-digit',
-                                        second: '2-digit',
-                                        timeZone: 'Asia/Tokyo'
-                                    });
-                                } else if (currentHours <= 6) {
-                                    // 6時間: 時:分
-                                    label = date.toLocaleTimeString('ja-JP', { 
-                                        hour: '2-digit', 
-                                        minute: '2-digit',
-                                        timeZone: 'Asia/Tokyo'
-                                    });
-                                } else if (currentHours <= 24) {
-                                    // 1日: 時:分
-                                    label = date.toLocaleTimeString('ja-JP', { 
-                                        hour: '2-digit', 
-                                        minute: '2-digit',
-                                        timeZone: 'Asia/Tokyo'
-                                    });
-                                } else if (currentHours <= 168) {
-                                    // 1週間: 月/日 時:分
-                                    label = date.toLocaleString('ja-JP', { 
-                                        month: '2-digit',
-                                        day: '2-digit',
-                                        hour: '2-digit', 
-                                        minute: '2-digit',
-                                        timeZone: 'Asia/Tokyo'
-                                    });
-                                } else {
-                                    // 1ヶ月: 月/日
-                                    label = date.toLocaleDateString('ja-JP', { 
-                                        month: '2-digit',
-                                        day: '2-digit',
-                                        timeZone: 'Asia/Tokyo'
-                                    });
-                                }
-                                
-                                dataPoints.push({
-                                    timestamp: date.getTime(),  // ソート用のタイムスタンプ
-                                    label: label,
-                                    temperature: reading.temperature
-                                });
-                                
-                                allLabels.add(label);
-                                allTemps.push(reading.temperature);
-                            });
+                // 並列で全センサーのデータを取得（高速化）
+                const historyPromises = sensorsData.sensors.map(sensor => 
+                    fetch(`/api/temperature/${sensor.sensor_id}?hours=${currentHours}`)
+                        .then(response => {
+                            if (!response.ok) {
+                                console.error(`Failed to fetch history for ${sensor.sensor_id}: ${response.status}`);
+                                return null;
+                            }
+                            return response.json().then(historyData => ({
+                                sensor,
+                                historyData
+                            }));
+                        })
+                        .catch(err => {
+                            console.error(`Error fetching history for ${sensor.sensor_id}:`, err);
+                            return null;
+                        })
+                );
 
-                            sensorDataMap[sensor.sensor_id] = {
-                                dataPoints: dataPoints,
-                                name: sensor.sensor_name || sensor.sensor_id
-                            };
-                        } else {
-                            // グラフデータがないセンサー
-                            console.warn(`No readings found for ${sensor.sensor_id} (hours=${currentHours})`);
-                            sensorsWithoutData.push(sensor);
-                        }
-                    } catch (err) {
-                        console.error(`Error fetching history for ${sensor.sensor_id}:`, err);
+                // 全リクエストを並列実行
+                const historyResults = await Promise.all(historyPromises);
+
+                // 結果を処理
+                for (const result of historyResults) {
+                    if (!result || !result.historyData.readings || result.historyData.readings.length === 0) {
+                        continue;
                     }
+
+                    const { sensor, historyData } = result;
+                    const sortedReadings = historyData.readings.sort((a, b) => {
+                        return new Date(a.timestamp) - new Date(b.timestamp);
+                    });
+                    
+                    const dataPoints = [];
+                    sortedReadings.forEach(reading => {
+                        const date = new Date(reading.timestamp);
+                        const ts = date.getTime();
+                        dataPoints.push({ timestamp: ts, temperature: reading.temperature });
+                        allTemps.push(reading.temperature);
+                    });
+
+                    sensorDataMap[sensor.sensor_id] = {
+                        dataPoints: dataPoints,
+                        name: sensor.sensor_name || sensor.sensor_id
+                    };
                 }
                 
-                console.log(`Total sensors with data: ${Object.keys(sensorDataMap).length}, without data: ${sensorsWithoutData.length}`);
-
                 // すべてのタイムスタンプを収集してソート
                 const allTimestamps = new Set();
                 for (const sensorId in sensorDataMap) {
@@ -499,63 +488,24 @@
                 }
                 const sortedTimestamps = Array.from(allTimestamps).sort((a, b) => a - b);
                 
-                // タイムスタンプからラベルを生成
-                const sortedLabels = sortedTimestamps.map(ts => {
+                // タイムスタンプ→ラベルのマップを1回だけ作成（重複処理削除）
+                const timestampToLabel = new Map();
+                sortedTimestamps.forEach(ts => {
                     const date = new Date(ts);
-                    if (currentHours <= 0.5) {
-                        return date.toLocaleTimeString('ja-JP', { 
-                            hour: '2-digit', 
-                            minute: '2-digit',
-                            second: '2-digit',
-                            timeZone: 'Asia/Tokyo'
-                        });
-                    } else if (currentHours <= 1) {
-                        return date.toLocaleTimeString('ja-JP', { 
-                            hour: '2-digit', 
-                            minute: '2-digit',
-                            second: '2-digit',
-                            timeZone: 'Asia/Tokyo'
-                        });
-                    } else if (currentHours <= 6) {
-                        return date.toLocaleTimeString('ja-JP', { 
-                            hour: '2-digit', 
-                            minute: '2-digit',
-                            timeZone: 'Asia/Tokyo'
-                        });
-                    } else if (currentHours <= 24) {
-                        return date.toLocaleTimeString('ja-JP', { 
-                            hour: '2-digit', 
-                            minute: '2-digit',
-                            timeZone: 'Asia/Tokyo'
-                        });
-                    } else if (currentHours <= 168) {
-                        return date.toLocaleString('ja-JP', { 
-                            month: '2-digit',
-                            day: '2-digit',
-                            hour: '2-digit', 
-                            minute: '2-digit',
-                            timeZone: 'Asia/Tokyo'
-                        });
-                    } else {
-                        return date.toLocaleDateString('ja-JP', { 
-                            month: '2-digit',
-                            day: '2-digit',
-                            timeZone: 'Asia/Tokyo'
-                        });
-                    }
+                    timestampToLabel.set(ts, formatLabel(date, currentHours));
                 });
+                const sortedLabels = Array.from(timestampToLabel.values());
 
-                // データセットを作成
+                // データセットを作成（O(1)マップ参照を使用）
                 let colorIndex = 0;
                 for (const sensorId in sensorDataMap) {
                     const data = sensorDataMap[sensorId];
-                    const temps = [];
-                    
-                    // タイムスタンプに合わせて温度データをマッピング
-                    sortedTimestamps.forEach(ts => {
-                        const point = data.dataPoints.find(dp => dp.timestamp === ts);
-                        temps.push(point ? point.temperature : null);
+                    const dataPointsMap = new Map();  // O(1)参照用
+                    data.dataPoints.forEach(dp => {
+                        dataPointsMap.set(dp.timestamp, dp.temperature);
                     });
+                    
+                    const temps = sortedTimestamps.map(ts => dataPointsMap.get(ts) || null);
 
                     datasets.push({
                         label: data.name,
@@ -564,13 +514,13 @@
                         backgroundColor: chartColors[colorIndex % chartColors.length] + '20',
                         tension: 0.4,
                         fill: false,
-                        pointRadius: 0,  // ドットを非表示（線のみ）
-                        pointHoverRadius: 5,  // ホバー時のみドットを表示
+                        pointRadius: 0,
+                        pointHoverRadius: 5,
                         pointBackgroundColor: chartColors[colorIndex % chartColors.length],
                         pointBorderColor: '#fff',
-                        pointBorderWidth: 2,  // 線の太さ
-                        showLine: true,  // 線を表示
-                        spanGaps: true  // データがない部分も線でつなぐ
+                        pointBorderWidth: 2,
+                        showLine: true,
+                        spanGaps: true
                     });
                     colorIndex++;
                 }
@@ -605,83 +555,93 @@
             }
         }
 
-        // リアルタイムデータ更新
+        // リアルタイムデータ更新（センサーカード温度値のみ更新、HTML再生成は避ける）
         async function updateData() {
             try {
-                // 温度データを取得
                 const sensorsResponse = await fetch('/api/sensors');
                 if (!sensorsResponse.ok) {
                     throw new Error(`HTTP error! status: ${sensorsResponse.status}`);
                 }
                 const sensorsData = await sensorsResponse.json();
                 
-                // システムステータスを取得
-                let statusData = null;
-                try {
-                    const statusResponse = await fetch('/api/status');
-                    if (statusResponse.ok) {
-                        statusData = await statusResponse.json();
+                // 初回呼び出し時のみセンサーカードを生成
+                const sensorsGrid = document.getElementById('sensors-grid');
+                if (sensorsGrid.children.length === 0) {
+                    if (sensorsData.sensors && sensorsData.sensors.length > 0) {
+                        sensorsGrid.innerHTML = sensorsData.sensors.map(sensor => createSensorCard(sensor)).join('');
+                    } else {
+                        sensorsGrid.innerHTML = '<div class="card"><h2>センサー未接続</h2><p>ESP32からのデータを受信していません</p></div>';
                     }
-                } catch (statusError) {
-                    console.warn('Status API error:', statusError);
+                } else if (sensorsData.sensors && sensorsData.sensors.length > 0) {
+                    // 2回目以降：温度値のみ更新（DOM再構築なし）
+                    const cards = sensorsGrid.querySelectorAll('.card:not(:first-child)');
+                    sensorsData.sensors.forEach((sensor, i) => {
+                        if (cards[i]) {
+                            const tempEl = cards[i].querySelector('.temp-display');
+                            if (tempEl) {
+                                tempEl.textContent = `${sensor.temperature.toFixed(1)}°C`;
+                            }
+                            // 最終更新時刻を更新
+                            const updateEl = cards[i].querySelector('.sensor-info p:nth-child(2)');
+                            if (updateEl && sensor.timestamp) {
+                                const timestamp = new Date(sensor.timestamp);
+                                const timeStr = timestamp.toLocaleString('ja-JP', {
+                                    year: 'numeric', month: '2-digit', day: '2-digit',
+                                    hour: '2-digit', minute: '2-digit', second: '2-digit',
+                                    timeZone: 'Asia/Tokyo'
+                                });
+                                updateEl.innerHTML = `<strong>最終更新:</strong> ${timeStr}`;
+                            }
+                        }
+                    });
                 }
                 
-                console.log('Sensors:', sensorsData);
-                if (statusData) console.log('Status:', statusData);
-            
-                // センサーカードを更新
-                const sensorsGrid = document.getElementById('sensors-grid');
-                if (sensorsData.sensors && sensorsData.sensors.length > 0) {
-                    sensorsGrid.innerHTML = sensorsData.sensors.map(sensor => createSensorCard(sensor)).join('');
-                    
-                    // センサー数を更新
-                    const sensorCountEl = document.getElementById('sensor-count');
-                    if (sensorCountEl) {
-                        sensorCountEl.textContent = sensorsData.sensors.length;
-                    }
-                    
-                    // ステータスを更新
-                    const statusEsp32El = document.getElementById('status-esp32');
-                    const statusEsp32TextEl = document.getElementById('status-esp32-text');
-                    if (statusEsp32El) {
-                        statusEsp32El.className = 'status-dot online';
-                    }
-                    if (statusEsp32TextEl) {
-                        statusEsp32TextEl.textContent = `ESP32 接続中 (${sensorsData.sensors.length}台)`;
-                    }
-                } else {
-                    sensorsGrid.innerHTML = '<div class="card"><h2>センサー未接続</h2><p>ESP32からのデータを受信していません</p></div>';
-                    const sensorCountEl = document.getElementById('sensor-count');
-                    if (sensorCountEl) {
-                        sensorCountEl.textContent = '0';
-                    }
-                    const statusEsp32El = document.getElementById('status-esp32');
-                    const statusEsp32TextEl = document.getElementById('status-esp32-text');
-                    if (statusEsp32El) {
-                        statusEsp32El.className = 'status-dot offline';
-                    }
-                    if (statusEsp32TextEl) {
-                        statusEsp32TextEl.textContent = 'ESP32 未接続';
-                    }
+                // センサー数を更新（条件分岐減少）
+                const sensorCountEl = document.getElementById('sensor-count');
+                if (sensorCountEl) {
+                    sensorCountEl.textContent = sensorsData.sensors?.length || 0;
                 }
-            
+                
+                // ステータスを更新（条件統合）
+                const statusEsp32El = document.getElementById('status-esp32');
+                const statusEsp32TextEl = document.getElementById('status-esp32-text');
+                const isOnline = sensorsData.sensors && sensorsData.sensors.length > 0;
+                if (statusEsp32El) {
+                    statusEsp32El.className = isOnline ? 'status-dot online' : 'status-dot offline';
+                }
+                if (statusEsp32TextEl) {
+                    statusEsp32TextEl.textContent = isOnline 
+                        ? `ESP32 接続中 (${sensorsData.sensors.length}台)` 
+                        : 'ESP32 未接続';
+                }
             } catch (error) {
                 console.error('Error updating data:', error);
-                const sensorsGrid = document.getElementById('sensors-grid');
-                if (sensorsGrid) {
-                    sensorsGrid.innerHTML = '<div class="card"><h2>エラー</h2><p>データの取得に失敗しました: ' + error.message + '</p></div>';
-                }
             }
         }
 
-        // 初期化
-        initChart();
-        updateData();
-        updateChart();
+        // デバウンス関数（グラフ更新の高速化）
+        let chartUpdateTimeout = null;
+        function debouncedUpdateChart() {
+            if (chartUpdateTimeout) {
+                clearTimeout(chartUpdateTimeout);
+            }
+            chartUpdateTimeout = setTimeout(() => {
+                requestAnimationFrame(() => updateChart());
+            }, 100);
+        }
 
-        // 5秒ごとにデータ更新、30秒ごとにグラフ更新
-        setInterval(updateData, 5000);
-        setInterval(updateChart, 30000);
+        // 初期化（一度だけ実行）
+        initChart();
+        updateData();  // センサーカード表示
+        updateChart(); // グラフ表示
+
+        // 定期更新（requestAnimationFrameを使用して描画を最適化）
+        setInterval(() => {
+            requestAnimationFrame(() => updateData());
+        }, 5000);      // 5秒ごとに温度値のみ更新（DOM再構築なし）
+        setInterval(() => {
+            debouncedUpdateChart();
+        }, 30000);    // 30秒ごとにグラフ更新（デバウンス適用）
     </script>
 </body>
 </html>
