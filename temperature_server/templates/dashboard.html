@@ -159,9 +159,103 @@
             background: #667eea;
             color: white;
         }
+        .downsample-toggle-btn {
+            margin-left: auto;
+            background: #f0f0f0;
+            border: 2px solid #ccc;
+            color: #666;
+        }
+        .downsample-toggle-btn:hover {
+            background: #e0e0e0;
+            border-color: #999;
+        }
+        .downsample-toggle-btn.active {
+            background: #4caf50;
+            border-color: #4caf50;
+            color: white;
+        }
         .chart-wrapper {
             position: relative;
             height: 300px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        /* 温度アラート */
+        .temperature-alert {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
+            color: white;
+            padding: 20px 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(244, 67, 54, 0.4);
+            z-index: 1000;
+            min-width: 300px;
+            max-width: 400px;
+            animation: slideIn 0.3s ease-out;
+            display: none;
+        }
+        .temperature-alert.show {
+            display: block;
+        }
+        .temperature-alert h3 {
+            margin: 0 0 10px 0;
+            font-size: 1.2em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .temperature-alert .alert-content {
+            margin: 10px 0;
+            font-size: 0.95em;
+            line-height: 1.6;
+        }
+        .temperature-alert .alert-sensor {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 8px 12px;
+            border-radius: 5px;
+            margin: 5px 0;
+        }
+        .temperature-alert .close-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 1.2em;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.3s;
+        }
+        .temperature-alert .close-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        .temperature-alert.pulse {
+            animation: slideIn 0.3s ease-out, pulse 2s infinite;
         }
     </style>
 </head>
@@ -178,6 +272,16 @@
             <a href="/management" class="btn">管理画面</a>
         </div>
 
+        <!-- 温度アラート（5℃未満） -->
+        <div id="temperature-alert" class="temperature-alert">
+            <button class="close-btn" onclick="closeAlert()">×</button>
+            <h3>⚠️ 低温アラート</h3>
+            <div class="alert-content">
+                <p><strong>5℃未満の温度を検出しました</strong></p>
+                <div id="alert-sensors-list"></div>
+            </div>
+        </div>
+
         <!-- センサー一覧 -->
         <div class="sensors-grid" id="sensors-grid">
             <!-- センサーカードはJavaScriptで動的に生成 -->
@@ -188,31 +292,43 @@
             <h2>📈 温度トレンドグラフ</h2>
             <div class="chart-controls">
                 <button class="time-range-btn" data-hours="0.5">30分</button>
-                <button class="time-range-btn active" data-hours="1">1時間</button>
+                <button class="time-range-btn" data-hours="1">1時間</button>
                 <button class="time-range-btn" data-hours="6">6時間</button>
-                <button class="time-range-btn" data-hours="24">1日</button>
+                <button class="time-range-btn active" data-hours="24">1日</button>
                 <button class="time-range-btn" data-hours="168">1週間</button>
                 <button class="time-range-btn" data-hours="720">1ヶ月</button>
+                <!-- 間引き切り替えボタン（処理が重い場合はこのボタンを削除可能） -->
+                <button id="downsample-toggle-btn" class="downsample-toggle-btn" onclick="toggleDownsampling()">
+                    <span id="downsample-status">間引き: OFF</span>
+                </button>
             </div>
-            <div class="chart-wrapper">
+            <div class="chart-wrapper" id="chart-wrapper">
+                <div id="chart-loading" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255, 255, 255, 0.9); z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                    <div style="font-size: 1.2em; color: #667eea; margin-bottom: 15px; font-weight: 600;">📊 データ読み込み中...</div>
+                    <div style="width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid #667eea; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                </div>
                 <canvas id="temperatureChart"></canvas>
             </div>
         </div>
 
         <!-- システムステータス -->
         <div class="card">
-            <h2>システムステータス</h2>
+            <h2>🔧 システムステータス</h2>
             <div class="status">
                 <div class="status-dot online" id="status-esp32"></div>
-                <span id="status-esp32-text">ESP32 接続中</span>
+                <span id="status-esp32-text">ESP32 接続中 (3台)</span>
             </div>
             <div class="status">
-                <div class="status-dot online"></div>
-                <span>WiFi AP 稼働中</span>
+                <div class="status-dot online" id="status-espnow"></div>
+                <span id="status-espnow-text">ESP-NOW 稼働中</span>
             </div>
             <div class="status">
-                <div class="status-dot online"></div>
-                <span>インターネット接続</span>
+                <div class="status-dot online" id="status-ap"></div>
+                <span id="status-ap-text">WiFi AP 稼働中</span>
+            </div>
+            <div class="status">
+                <div class="status-dot online" id="status-internet"></div>
+                <span id="status-internet-text">インターネット接続</span>
             </div>
             <div class="status">
                 <div class="status-dot online"></div>
@@ -224,7 +340,7 @@
     <script>
         // Chart.js の設定
         let temperatureChart = null;
-        let currentHours = 1; // デフォルトは1時間
+        let currentHours = 24; // デフォルトは24時間（直近1日）
         const chartColors = [
             'rgb(102, 126, 234)',  // 青
             'rgb(118, 75, 162)',   // 紫
@@ -232,6 +348,115 @@
             'rgb(255, 152, 0)',    // オレンジ
             'rgb(244, 67, 54)',    // 赤
         ];
+        
+        // センサーリストを共有（重複リクエストを削減）
+        let cachedSensorsData = null;
+        let lastSensorsUpdate = 0;
+        const SENSORS_CACHE_TTL = 2000; // 2秒間キャッシュ
+        
+        // APステータスをキャッシュ（重複リクエストを削減）
+        let cachedApStatus = null;
+        let lastApStatusUpdate = 0;
+        const AP_STATUS_CACHE_TTL = 10000; // 10秒間キャッシュ（AP状態は頻繁に変わらない）
+        
+        // グラフの最大データポイント数（Chart.jsのパフォーマンス向上のため）
+        const MAX_CHART_POINTS = 500; // 最大500ポイント（それ以上は間引き）
+        
+        // 間引きのON/OFF設定（初期値: OFF = 全データ読み込み）
+        let downsamplingEnabled = false;
+        
+        // データを間引き（ダウンサンプリング）する関数（最大値・最小値・急激な変化を保持）
+        function downsampleData(dataPoints, maxPoints) {
+            if (dataPoints.length <= maxPoints) {
+                return dataPoints;
+            }
+            
+            const downsampled = [];
+            const step = Math.ceil(dataPoints.length / maxPoints);
+            
+            // 1. 最初と最後のポイントは必ず含める
+            downsampled.push(dataPoints[0]);
+            
+            // 2. 最大値・最小値を検出して保持
+            let maxTemp = dataPoints[0].temperature;
+            let minTemp = dataPoints[0].temperature;
+            let maxIndex = 0;
+            let minIndex = 0;
+            
+            for (let i = 1; i < dataPoints.length - 1; i++) {
+                if (dataPoints[i].temperature > maxTemp) {
+                    maxTemp = dataPoints[i].temperature;
+                    maxIndex = i;
+                }
+                if (dataPoints[i].temperature < minTemp) {
+                    minTemp = dataPoints[i].temperature;
+                    minIndex = i;
+                }
+            }
+            
+            // 最大値・最小値のポイントを追加（重複チェック）
+            if (maxIndex > 0 && maxIndex < dataPoints.length - 1) {
+                if (!downsampled.find(dp => dp.timestamp === dataPoints[maxIndex].timestamp)) {
+                    downsampled.push(dataPoints[maxIndex]);
+                }
+            }
+            if (minIndex > 0 && minIndex < dataPoints.length - 1 && minIndex !== maxIndex) {
+                if (!downsampled.find(dp => dp.timestamp === dataPoints[minIndex].timestamp)) {
+                    downsampled.push(dataPoints[minIndex]);
+                }
+            }
+            
+            // 3. 急激な変化（変化率が大きい箇所）を検出して保持
+            const changeThreshold = 0.5; // 0.5°C以上の変化を検出
+            const importantPoints = new Set();
+            
+            for (let i = 1; i < dataPoints.length - 1; i++) {
+                const prevTemp = dataPoints[i - 1].temperature;
+                const currTemp = dataPoints[i].temperature;
+                const nextTemp = dataPoints[i + 1].temperature;
+                
+                // 前後のポイントとの変化率を計算
+                const change1 = Math.abs(currTemp - prevTemp);
+                const change2 = Math.abs(nextTemp - currTemp);
+                
+                // 急激な変化がある場合は保持
+                if (change1 > changeThreshold || change2 > changeThreshold) {
+                    importantPoints.add(i);
+                }
+            }
+            
+            // 重要ポイントを追加（最大値・最小値と重複しないように）
+            importantPoints.forEach(index => {
+                if (index !== maxIndex && index !== minIndex && 
+                    !downsampled.find(dp => dp.timestamp === dataPoints[index].timestamp)) {
+                    downsampled.push(dataPoints[index]);
+                }
+            });
+            
+            // 4. 残りのポイントを均等に間引き
+            const remainingSlots = maxPoints - downsampled.length - 1; // -1は最後のポイント用
+            if (remainingSlots > 0) {
+                const adjustedStep = Math.ceil((dataPoints.length - 1) / remainingSlots);
+                for (let i = adjustedStep; i < dataPoints.length - 1; i += adjustedStep) {
+                    // 既に追加されているポイントはスキップ
+                    if (!downsampled.find(dp => dp.timestamp === dataPoints[i].timestamp)) {
+                        downsampled.push(dataPoints[i]);
+                    }
+                }
+            }
+            
+            // 5. 最後のポイントを追加
+            if (dataPoints.length > 1) {
+                if (!downsampled.find(dp => dp.timestamp === dataPoints[dataPoints.length - 1].timestamp)) {
+                    downsampled.push(dataPoints[dataPoints.length - 1]);
+                }
+            }
+            
+            // 6. タイムスタンプでソート（順序を保証）
+            downsampled.sort((a, b) => a.timestamp - b.timestamp);
+            
+            return downsampled;
+        }
 
         // グラフを初期化
         function initChart() {
@@ -245,6 +470,11 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    animation: false, // アニメーション無効化（パフォーマンス向上）
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    },
                     plugins: {
                         legend: {
                             display: true,
@@ -286,14 +516,19 @@
             });
         }
 
-        // 期間選択ボタンのイベント（デバウンス適用）
+        // 期間選択ボタンのイベント（データ再読み込み）
         document.querySelectorAll('.time-range-btn').forEach(btn => {
             btn.addEventListener('click', function() {
                 document.querySelectorAll('.time-range-btn').forEach(b => b.classList.remove('active'));
                 this.classList.add('active');
-                currentHours = parseFloat(this.dataset.hours);  // parseFloatに変更（0.5時間対応）
-                formatLabelCache.clear(); // キャッシュをクリア
-                debouncedUpdateChart();
+                const newHours = parseFloat(this.dataset.hours);
+                
+                // 期間が変更された場合のみデータを再読み込み
+                if (newHours !== currentHours) {
+                    currentHours = newHours;
+                    formatLabelCache.clear(); // キャッシュをクリア
+                    updateChart(); // データを再読み込み（読み込み中表示付き）
+                }
             });
         });
 
@@ -415,53 +650,104 @@
             return formatted;
         }
 
-        // グラフデータを更新（高速化：並列リクエスト）
+        // センサーリストを取得（キャッシュ付き）
+        async function getSensorsData(forceRefresh = false) {
+            const now = Date.now();
+            if (!forceRefresh && cachedSensorsData && (now - lastSensorsUpdate) < SENSORS_CACHE_TTL) {
+                return cachedSensorsData;
+            }
+            
+            try {
+                const sensorsResponse = await fetch('/api/sensors');
+                if (!sensorsResponse.ok) {
+                    throw new Error(`HTTP error! status: ${sensorsResponse.status}`);
+                }
+                const sensorsData = await sensorsResponse.json();
+                cachedSensorsData = sensorsData;
+                lastSensorsUpdate = now;
+                return sensorsData;
+            } catch (error) {
+                console.error('Error fetching sensors:', error);
+                // キャッシュがあればそれを使用
+                return cachedSensorsData || { sensors: [] };
+            }
+        }
+
+        // グラフデータを更新（高速化：バッチAPI使用）
         async function updateChart() {
             if (!temperatureChart) return;
 
+            // 読み込み中表示を表示（tryブロックの外で定義してfinallyでも参照可能にする）
+            const loadingEl = document.getElementById('chart-loading');
+            
+            // 読み込み表示を即座に表示
+            if (loadingEl) {
+                loadingEl.style.display = 'flex'; // flex表示に変更
+            }
+            
+            // 少し遅延を入れて確実に表示されるようにする（UIのため）
+            await new Promise(resolve => setTimeout(resolve, 50));
+
             try {
-                // 各センサーのデータを取得
-                const sensorsResponse = await fetch('/api/sensors');
-                const sensorsData = await sensorsResponse.json();
+                console.log(`[updateChart] グラフ更新開始 (${new Date().toLocaleTimeString()}) - ${currentHours}時間分`);
+
+                // センサーリストを取得（キャッシュから）
+                const sensorsData = await getSensorsData();
                 
                 if (!sensorsData.sensors || sensorsData.sensors.length === 0) {
+                    // データがない場合は読み込み表示を消して終了
+                    if (loadingEl) {
+                        loadingEl.style.display = 'none';
+                    }
+                    return;
+                }
+
+                const sensorIds = sensorsData.sensors.map(s => s.sensor_id);
+                
+                // バッチAPIで全センサーのデータを1回のリクエストで取得（高速化）
+                const batchResponse = await fetch('/api/temperature/batch', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        sensor_ids: sensorIds,
+                        hours: currentHours
+                    })
+                });
+
+                if (!batchResponse.ok) {
+                    throw new Error(`Batch API error: ${batchResponse.status}`);
+                }
+
+                const batchData = await batchResponse.json();
+                
+                if (!batchData.data || Object.keys(batchData.data).length === 0) {
+                    // データがない場合は読み込み表示を消して終了
+                    if (loadingEl) {
+                        loadingEl.style.display = 'none';
+                    }
                     return;
                 }
 
                 const datasets = [];
                 const sensorDataMap = {};
                 const allTemps = [];
+                let totalOriginalPoints = 0; // 元のデータポイント数を記録
 
-                // 並列で全センサーのデータを取得（高速化）
-                const historyPromises = sensorsData.sensors.map(sensor => 
-                    fetch(`/api/temperature/${sensor.sensor_id}?hours=${currentHours}`)
-                        .then(response => {
-                            if (!response.ok) {
-                                console.error(`Failed to fetch history for ${sensor.sensor_id}: ${response.status}`);
-                                return null;
-                            }
-                            return response.json().then(historyData => ({
-                                sensor,
-                                historyData
-                            }));
-                        })
-                        .catch(err => {
-                            console.error(`Error fetching history for ${sensor.sensor_id}:`, err);
-                            return null;
-                        })
-                );
-
-                // 全リクエストを並列実行
-                const historyResults = await Promise.all(historyPromises);
-
-                // 結果を処理
-                for (const result of historyResults) {
-                    if (!result || !result.historyData.readings || result.historyData.readings.length === 0) {
+                // バッチデータを処理
+                for (const sensorId of sensorIds) {
+                    const sensor = sensorsData.sensors.find(s => s.sensor_id === sensorId);
+                    if (!sensor) continue;
+                    
+                    const readings = batchData.data[sensorId]?.readings || [];
+                    if (readings.length === 0) {
                         continue;
                     }
 
-                    const { sensor, historyData } = result;
-                    const sortedReadings = historyData.readings.sort((a, b) => {
+                    totalOriginalPoints += readings.length; // 元のデータポイント数を記録
+
+                    const sortedReadings = readings.sort((a, b) => {
                         return new Date(a.timestamp) - new Date(b.timestamp);
                     });
                     
@@ -473,9 +759,14 @@
                         allTemps.push(reading.temperature);
                     });
 
-                    sensorDataMap[sensor.sensor_id] = {
-                        dataPoints: dataPoints,
-                        name: sensor.sensor_name || sensor.sensor_id
+                    // データを間引き（パフォーマンス向上、設定がONの場合のみ）
+                    const downsampledPoints = downsamplingEnabled 
+                        ? downsampleData(dataPoints, MAX_CHART_POINTS)
+                        : dataPoints; // 間引きOFFの場合は全データを使用
+                    
+                    sensorDataMap[sensorId] = {
+                        dataPoints: downsampledPoints,
+                        name: sensor.sensor_name || sensorId
                     };
                 }
                 
@@ -528,7 +819,7 @@
                 // Y軸の範囲を計算
                 const yRange = calculateYAxisRange(allTemps);
 
-                // グラフを更新
+                // グラフを更新（アニメーションなしで高速更新）
                 temperatureChart.data.labels = sortedLabels;
                 temperatureChart.data.datasets = datasets;
                 temperatureChart.options.scales.y.suggestedMin = yRange.min;
@@ -546,23 +837,78 @@
                 document.querySelector('.chart-container h2').textContent = 
                     `📈 温度トレンドグラフ（過去${timeLabels[currentHours] || currentHours + '時間'}）`;
                 
-                temperatureChart.update();
+                // アニメーションなしで更新（高速化）
+                temperatureChart.update('none');
+                
+                const totalPoints = sortedLabels.length;
+                console.log(`[updateChart] グラフ更新完了 (${new Date().toLocaleTimeString()}) - ${totalPoints}ポイント表示（元データ: ${totalOriginalPoints}ポイント、間引き率: ${totalOriginalPoints > 0 ? ((1 - totalPoints / totalOriginalPoints) * 100).toFixed(1) : 0}%）`);
                 
                 // グラフデータがないセンサーは updateData() で既に表示されているため、ここでは追加しない
                 // （重複を避けるため）
             } catch (error) {
                 console.error('Error updating chart:', error);
+            } finally {
+                // 読み込み中表示を非表示
+                if (loadingEl) {
+                    loadingEl.style.display = 'none';
+                }
             }
         }
 
+        // 温度アラート管理
+        const TEMPERATURE_ALERT_THRESHOLD = 5.0; // 5℃未満でアラート
+        let alertActiveSensors = new Set(); // 現在アラート中のセンサーID
+        
+        // アラートを表示
+        function showTemperatureAlert(lowTempSensors) {
+            const alertEl = document.getElementById('temperature-alert');
+            const alertListEl = document.getElementById('alert-sensors-list');
+            
+            if (!alertEl || !alertListEl) return;
+            
+            // アラート中のセンサーを更新
+            alertActiveSensors.clear();
+            lowTempSensors.forEach(sensor => {
+                alertActiveSensors.add(sensor.sensor_id);
+            });
+            
+            // アラート内容を更新
+            if (lowTempSensors.length > 0) {
+                alertListEl.innerHTML = lowTempSensors.map(sensor => {
+                    const timeStr = new Date(sensor.timestamp).toLocaleString('ja-JP', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        timeZone: 'Asia/Tokyo'
+                    });
+                    return `
+                        <div class="alert-sensor">
+                            <strong>${sensor.sensor_name || sensor.sensor_id}</strong><br>
+                            温度: <strong>${sensor.temperature.toFixed(1)}°C</strong> (${timeStr})
+                        </div>
+                    `;
+                }).join('');
+                
+                alertEl.classList.add('show', 'pulse');
+            } else {
+                // アラート条件を満たすセンサーがない場合は非表示
+                alertEl.classList.remove('show', 'pulse');
+            }
+        }
+        
+        // アラートを閉じる
+        function closeAlert() {
+            const alertEl = document.getElementById('temperature-alert');
+            if (alertEl) {
+                alertEl.classList.remove('show', 'pulse');
+            }
+        }
+        
         // リアルタイムデータ更新（センサーカード温度値のみ更新、HTML再生成は避ける）
         async function updateData() {
             try {
-                const sensorsResponse = await fetch('/api/sensors');
-                if (!sensorsResponse.ok) {
-                    throw new Error(`HTTP error! status: ${sensorsResponse.status}`);
-                }
-                const sensorsData = await sensorsResponse.json();
+                // センサーリストを取得（キャッシュから、必要に応じて更新）
+                const sensorsData = await getSensorsData();
                 
                 // 初回呼び出し時のみセンサーカードを生成
                 const sensorsGrid = document.getElementById('sensors-grid');
@@ -614,6 +960,67 @@
                         ? `ESP32 接続中 (${sensorsData.sensors.length}台)` 
                         : 'ESP32 未接続';
                 }
+                
+                // ESP-NOW ステータスを更新
+                const statusEspnowEl = document.getElementById('status-espnow');
+                const statusEspnowTextEl = document.getElementById('status-espnow-text');
+                if (statusEspnowEl && statusEspnowTextEl) {
+                    const espnowDevices = sensorsData.sensors?.filter(s => s.connection_type === 'esp_now') || [];
+                    const espnowActive = espnowDevices.length > 0;
+                    statusEspnowEl.className = espnowActive ? 'status-dot online' : 'status-dot offline';
+                    statusEspnowTextEl.textContent = espnowActive 
+                        ? `ESP-NOW 稼働中 (${espnowDevices.length}台)`
+                        : 'ESP-NOW 待機中';
+                }
+                
+                // WiFi AP ステータスを更新（プロセス確認、キャッシュ付き）
+                const statusApEl = document.getElementById('status-ap');
+                const statusApTextEl = document.getElementById('status-ap-text');
+                if (statusApEl && statusApTextEl) {
+                    try {
+                        const now = Date.now();
+                        let apActive = false;
+                        
+                        // キャッシュをチェック
+                        if (cachedApStatus !== null && (now - lastApStatusUpdate) < AP_STATUS_CACHE_TTL) {
+                            apActive = cachedApStatus;
+                        } else {
+                            // キャッシュが無効または初回取得
+                            const apResponse = await fetch('/api/status/ap');
+                            const apData = await apResponse.json();
+                            apActive = apData.ap_running === true;
+                            cachedApStatus = apActive;
+                            lastApStatusUpdate = now;
+                        }
+                        
+                        statusApEl.className = apActive ? 'status-dot online' : 'status-dot offline';
+                        statusApTextEl.textContent = apActive ? 'WiFi AP 稼働中' : 'WiFi AP 停止中';
+                    } catch (error) {
+                        console.warn('AP status check failed:', error);
+                        statusApEl.className = 'status-dot offline';
+                        statusApTextEl.textContent = 'WiFi AP 状態不明';
+                    }
+                }
+                
+                // 温度アラートチェック（5℃未満）
+                if (sensorsData.sensors && sensorsData.sensors.length > 0) {
+                    const lowTempSensors = sensorsData.sensors.filter(sensor => {
+                        return sensor.temperature < TEMPERATURE_ALERT_THRESHOLD;
+                    });
+                    
+                    if (lowTempSensors.length > 0) {
+                        showTemperatureAlert(lowTempSensors);
+                    } else {
+                        // すべてのセンサーが5℃以上になったらアラートを非表示
+                        if (alertActiveSensors.size > 0) {
+                            const alertEl = document.getElementById('temperature-alert');
+                            if (alertEl) {
+                                alertEl.classList.remove('show', 'pulse');
+                            }
+                            alertActiveSensors.clear();
+                        }
+                    }
+                }
             } catch (error) {
                 console.error('Error updating data:', error);
             }
@@ -630,15 +1037,42 @@
             }, 100);
         }
 
+        // 間引き切り替えボタンの状態を更新
+        function updateDownsamplingButton() {
+            const btn = document.getElementById('downsample-toggle-btn');
+            const status = document.getElementById('downsample-status');
+            if (btn && status) {
+                if (downsamplingEnabled) {
+                    btn.classList.add('active');
+                    status.textContent = '間引き: ON';
+                } else {
+                    btn.classList.remove('active');
+                    status.textContent = '間引き: OFF';
+                }
+            }
+        }
+        
+        // 間引きのON/OFFを切り替え
+        function toggleDownsampling() {
+            downsamplingEnabled = !downsamplingEnabled;
+            updateDownsamplingButton();
+            // グラフを再読み込み（間引き設定を反映）
+            updateChart();
+        }
+        
         // 初期化（一度だけ実行）
         initChart();
+        updateDownsamplingButton(); // ボタンの初期状態を設定
         updateData();  // センサーカード表示
         updateChart(); // グラフ表示
 
         // 定期更新（requestAnimationFrameを使用して描画を最適化）
+        // センサーリストは2秒間キャッシュされるため、5秒ごとの更新でも効率的
         setInterval(() => {
             requestAnimationFrame(() => updateData());
         }, 5000);      // 5秒ごとに温度値のみ更新（DOM再構築なし）
+        
+        // グラフ更新は30秒ごとに実行（バッチAPIで1回のリクエストで全データ取得）
         setInterval(() => {
             debouncedUpdateChart();
         }, 30000);    // 30秒ごとにグラフ更新（デバウンス適用）

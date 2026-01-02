@@ -49,3 +49,4 @@ echo "ログを確認: ssh $REMOTE_HOST 'tail -f $REMOTE_DIR/logs/app.routes.api
 
 
 
+

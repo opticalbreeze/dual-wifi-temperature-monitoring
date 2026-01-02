@@ -12,7 +12,7 @@ PROJECT_ROOT = Path(__file__).parent.resolve()
 # ログ設定
 ENABLE_DEBUG_LOG = True          # デバッグログを出力する場合はTrue
 ENABLE_TRACEMALLOC_LOG = False   # メモリ割当量を出力する場合はTrue
-ENABLE_STDOUT_LOG = False        # ログを標準出力に表示する場合はTrue
+ENABLE_STDOUT_LOG = True         # ログを標準出力に表示する場合はTrue
 MAX_LINES_LOG = 1000             # ログ表示行数最大値
 
 # タイマー設定（秒）

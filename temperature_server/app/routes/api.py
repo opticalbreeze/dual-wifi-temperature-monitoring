@@ -2,6 +2,8 @@ from flask import Blueprint, request, jsonify
 from logger import setup_logger
 from datetime import datetime
 import sys
+import uuid
+import subprocess
 from pathlib import Path
 
 # パス設定
@@ -16,123 +18,154 @@ api_bp = Blueprint('api', __name__)
 @api_bp.route('/temperature', methods=['POST'])
 def receive_temperature():
     """ESP32からの温度データ受信"""
+    request_id = str(uuid.uuid4())[:8]
+    
     try:
-        # ============================================================
-        logger.info("[POST /api/temperature] リクエスト受信")
-        logger.info(f"IP: {request.remote_addr}")
-        logger.info(f"リクエストヘッダー: {dict(request.headers)}")
+        logger.info(f"[{request_id}] POST /api/temperature リクエスト受信")
+        logger.info(f"[{request_id}] IP: {request.remote_addr}")
         
         # 生リクエストボディを取得
         raw_body = request.get_data(as_text=True)
-        logger.info(f"Content-Type: {request.content_type}")
-        logger.info(f"Content-Length: {request.content_length}")
-        logger.info(f"生リクエストボディ: {raw_body}")
+        logger.info(f"[{request_id}] Content-Type: {request.content_type}")
+        logger.info(f"[{request_id}] 生リクエストボディ: {raw_body}")
         
         # JSONをパース
         data = request.get_json(force=True, silent=True)
-        logger.info(f"JSONデコード結果: {data}")
-
-        # バリデーション（device_id または sensor_id をサポート）
         if not data:
-            logger.warning(f"❌ バリデーション失敗 - JSONデコード失敗またはデータがNone: {raw_body}")
+            logger.warning(f"[{request_id}] ❌ JSONデコード失敗: {raw_body}")
             return jsonify({
                 "status": "error",
-                "message": "Invalid JSON format"
+                "error_code": "VALIDATION_ERROR",
+                "message": "Invalid JSON format",
+                "request_id": request_id
             }), 400
         
+        logger.info(f"[{request_id}] JSONデコード成功: {data}")
+        
+        # バリデーション
         sensor_id = data.get('device_id') or data.get('sensor_id')
         temperature = data.get('temperature') or data.get('temp')
         
-        logger.info(f"バリデーション - sensor_id: {sensor_id}, temperature: {temperature}")
-
         if not sensor_id or temperature is None:
-            logger.warning(f"❌ バリデーション失敗 - Invalid data format: {data}")
+            logger.warning(f"[{request_id}] ❌ バリデーション失敗: 必須フィールド不足")
             return jsonify({
                 "status": "error",
-                "message": "Missing required fields: device_id/sensor_id, temperature"
+                "error_code": "VALIDATION_ERROR",
+                "message": "Missing required fields: device_id/sensor_id, temperature",
+                "request_id": request_id
             }), 400
-
+        
         # データベースに挿入
         try:
             temperature = float(temperature)
             sensor_name = data.get('name') or data.get('sensor_name', 'Unknown')
-            location = data.get('location', 'Not set')
             humidity = data.get('humidity')
-            rssi = data.get('rssi')  # WiFi信号強度
-            battery_mode = data.get('battery_mode', False)  # バッテリーモード
+            rssi = data.get('rssi')
+            battery_mode = data.get('battery_mode', False)
+            connection_type = 'wifi_ap' if rssi is not None else 'esp_now'
             
-            logger.info(f"DB挿入開始 - sensor_id: {sensor_id}, temp: {temperature}, name: {sensor_name}, humidity: {humidity}, rssi: {rssi}, battery_mode: {battery_mode}")
+            logger.info(f"[{request_id}] DB挿入開始 - sensor_id: {sensor_id}, temp: {temperature}°C")
             
-            TemperatureQueries.insert_reading(sensor_id, temperature, sensor_name, humidity, rssi, battery_mode)
+            TemperatureQueries.insert_reading(
+                sensor_id, temperature, sensor_name, humidity, rssi, battery_mode, connection_type
+            )
             
-            logger.info(f"✅ データ保存成功 - Device: {sensor_id}, Name: {sensor_name}, Location: {location}, Temp: {temperature}°C, RSSI: {rssi}dBm, Battery: {battery_mode}")
-            logger.info("============================================================")
+            logger.info(f"[{request_id}] ✅ データ保存成功")
+            
+            return jsonify({
+                "status": "success",
+                "message": "Data received and stored",
+                "device_id": sensor_id,
+                "temperature": temperature,
+                "request_id": request_id,
+                "timestamp": datetime.now().isoformat()
+            }), 201
+            
         except Exception as db_error:
-            logger.error(f"❌ DB挿入エラー: {db_error}", exc_info=True)
-            logger.info("============================================================")
-            raise
-
-        return jsonify({
-            "status": "success",
-            "message": "Data received and stored",
-            "device_id": sensor_id,
-            "temperature": temperature,
-            "rssi": rssi,
-            "battery_mode": battery_mode,
-            "timestamp": datetime.now().isoformat()
-        }), 201
+            logger.error(f"[{request_id}] ❌ DB挿入エラー: {db_error}", exc_info=True)
+            return jsonify({
+                "status": "error",
+                "error_code": "DATABASE_ERROR",
+                "message": f"Failed to insert data: {str(db_error)}",
+                "request_id": request_id
+            }), 500
 
     except Exception as e:
-        logger.error(f"❌ エラー - Error processing temperature data: {e}", exc_info=True)
-        logger.info("============================================================")
+        logger.error(f"[{request_id}] ❌ 予期しないエラー: {e}", exc_info=True)
         return jsonify({
             "status": "error",
-            "message": str(e)
+            "error_code": "INTERNAL_ERROR",
+            "message": "Internal server error",
+            "request_id": request_id
         }), 500
 
 @api_bp.route('/sensors', methods=['GET'])
 def get_all_sensors():
     """全センサーの最新データを取得"""
+    request_id = str(uuid.uuid4())[:8]
+    
     try:
-        logger.info("GET /api/sensors - Request received")
+        logger.info(f"[{request_id}] GET /api/sensors リクエスト")
         sensors = TemperatureQueries.get_all_latest()
-        logger.info(f"GET /api/sensors - Found {len(sensors)} sensors")
-        if sensors:
-            for sensor in sensors:
-                logger.debug(f"GET /api/sensors - Sensor: {sensor.get('sensor_id')}, Temp: {sensor.get('temperature')}, Time: {sensor.get('timestamp')}")
-        else:
-            logger.warning("GET /api/sensors - No sensors found")
-        response = {
+        logger.info(f"[{request_id}] {len(sensors)}台のセンサーを取得")
+        
+        return jsonify({
             "status": "success",
             "sensors": sensors,
-            "count": len(sensors)
-        }
-        logger.info(f"GET /api/sensors - Response: {len(sensors)} sensors")
-        return jsonify(response)
+            "count": len(sensors),
+            "request_id": request_id
+        })
+    
     except Exception as e:
-        logger.error(f"Error fetching sensors: {e}", exc_info=True)
-        return jsonify({"status": "error", "message": str(e)}), 500
+        logger.error(f"[{request_id}] ❌ センサー取得エラー: {e}", exc_info=True)
+        return jsonify({
+            "status": "error",
+            "error_code": "SENSOR_ERROR",
+            "message": "Failed to fetch sensors",
+            "request_id": request_id
+        }), 500
 
 @api_bp.route('/temperature/<sensor_id>', methods=['GET'])
 def get_sensor_data(sensor_id):
     """特定センサーのデータを取得"""
+    request_id = str(uuid.uuid4())[:8]
+    
     try:
-        hours = request.args.get('hours', 24, type=float)  # float対応（0.5時間の30分に対応）
-        logger.debug(f"GET /api/temperature/{sensor_id} - hours={hours}")
+        hours = request.args.get('hours', 24, type=float)
+        
+        logger.info(f"[{request_id}] GET /api/temperature/{sensor_id} - hours={hours}")
+        
+        # hours のバリデーション
+        if hours <= 0 or hours > 8760:
+            logger.warning(f"[{request_id}] ❌ hours バリデーション失敗: {hours}")
+            return jsonify({
+                "status": "error",
+                "error_code": "VALIDATION_ERROR",
+                "message": "hours must be between 0 and 8760",
+                "request_id": request_id
+            }), 400
+        
         readings = TemperatureQueries.get_range(sensor_id, hours)
         stats = TemperatureQueries.get_statistics(sensor_id, hours)
         
-        logger.debug(f"GET /api/temperature/{sensor_id} - Found {len(readings)} readings")
+        logger.info(f"[{request_id}] {len(readings)}件のレコードを取得")
 
         return jsonify({
             "status": "success",
             "sensor_id": sensor_id,
             "readings": readings,
-            "statistics": stats
+            "statistics": stats,
+            "request_id": request_id
         })
+    
     except Exception as e:
-        logger.error(f"Error fetching sensor data: {e}", exc_info=True)
-        return jsonify({"status": "error", "message": str(e)}), 500
+        logger.error(f"[{request_id}] ❌ センサーデータ取得エラー: {e}", exc_info=True)
+        return jsonify({
+            "status": "error",
+            "error_code": "SENSOR_ERROR",
+            "message": f"Failed to fetch sensor data: {sensor_id}",
+            "request_id": request_id
+        }), 500
 
 @api_bp.route('/status', methods=['GET'])
 def get_status():
@@ -211,7 +244,7 @@ def delete_test_sensors():
 
 @api_bp.route('/temperature/batch', methods=['POST'])
 def get_temperature_batch():
-    """複数センサーのデータを一括取得（高速化）"""
+    """複数センサーのデータを一括取得（高速化・間引き対応）"""
     try:
         data = request.get_json()
         if not data or 'sensor_ids' not in data:
@@ -219,17 +252,21 @@ def get_temperature_batch():
         
         sensor_ids = data.get('sensor_ids', [])
         hours = data.get('hours', 24, type=float)
+        max_points = data.get('max_points', 500, type=int)  # クライアント側で指定可能
         
         if not isinstance(sensor_ids, list) or len(sensor_ids) == 0:
             return jsonify({'status': 'error', 'message': 'sensor_idsは空でないリストである必要があります'}), 400
         
-        logger.debug(f"GET /api/temperature/batch - sensor_ids={sensor_ids}, hours={hours}")
+        logger.debug(f"GET /api/temperature/batch - sensor_ids={sensor_ids}, hours={hours}, max_points={max_points}")
         
-        # バッチ取得
-        readings_map = TemperatureQueries.get_range_batch(sensor_ids, hours)
+        # バッチ取得（サーバー側で間引き）
+        readings_map = TemperatureQueries.get_range_batch(sensor_ids, hours, max_points_per_sensor=max_points)
         
         # 各センサーの統計も取得
         results = {}
+        total_original_points = 0
+        total_downsampled_points = 0
+        
         for sensor_id in sensor_ids:
             readings = readings_map.get(sensor_id, [])
             stats = TemperatureQueries.get_statistics(sensor_id, hours)
@@ -237,15 +274,60 @@ def get_temperature_batch():
                 "readings": readings,
                 "statistics": stats
             }
+            total_downsampled_points += len(readings)
         
-        logger.debug(f"GET /api/temperature/batch - Found data for {len(results)} sensors")
+        logger.debug(f"GET /api/temperature/batch - Found data for {len(results)} sensors, {total_downsampled_points} total points")
         
         return jsonify({
             "status": "success",
             "data": results,
-            "count": len(results)
+            "count": len(results),
+            "total_points": total_downsampled_points
         })
     except Exception as e:
         logger.error(f"Error fetching batch temperature data: {e}", exc_info=True)
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+def check_ap_status():
+    """WiFi APの稼働状況を確認"""
+    try:
+        # hostapd と dnsmasq の両方が起動しているか確認
+        result = subprocess.run(
+            ["/usr/bin/pgrep", "hostapd"],
+            capture_output=True,
+            timeout=5
+        )
+        hostapd_running = result.returncode == 0
+        
+        result = subprocess.run(
+            ["/usr/bin/pgrep", "dnsmasq"],
+            capture_output=True,
+            timeout=5
+        )
+        dnsmasq_running = result.returncode == 0
+        
+        logger.debug(f"AP status check: hostapd={hostapd_running}, dnsmasq={dnsmasq_running}")
+        return hostapd_running and dnsmasq_running
+    except Exception as e:
+        logger.warning(f"AP status check failed: {e}")
+        return False
+
+
+@api_bp.route('/status/ap', methods=['GET'])
+def get_ap_status():
+    """WiFi AP稼働状況を返す"""
+    try:
+        ap_running = check_ap_status()
+        return jsonify({
+            "status": "success",
+            "ap_running": ap_running,
+            "message": "WiFi AP 稼働中" if ap_running else "WiFi AP 停止中"
+        })
+    except Exception as e:
+        logger.error(f"Error checking AP status: {e}")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
 

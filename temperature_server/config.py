@@ -63,3 +63,4 @@ class Config:
     SERIAL_PORT = os.getenv('SERIAL_PORT', None)  # None=自動検出、例: '/dev/ttyUSB0'
     SERIAL_BAUDRATE = int(os.getenv('SERIAL_BAUDRATE', 115200))  # ボーレート
     SERIAL_TIMEOUT = float(os.getenv('SERIAL_TIMEOUT', 1.0))  # タイムアウト（秒）
+

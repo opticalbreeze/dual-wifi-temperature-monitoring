@@ -15,18 +15,24 @@ JST = timezone(timedelta(hours=9))
 class TemperatureQueries:
     
     @staticmethod
-    def insert_reading(sensor_id, temperature, sensor_name=None, humidity=None, rssi=None, battery_mode=False):
+    def insert_reading(sensor_id, temperature, sensor_name=None, humidity=None, rssi=None, battery_mode=False, connection_type=None):
         """温度データを挿入（ローカルタイムゾーン）"""
         with db_lock:
             conn = get_connection()
             cursor = conn.cursor()
             # ローカル時刻で現在時刻を取得（Raspberry Pi は Asia/Tokyo に設定済み）
             now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            # connection_type を自動判定（指定なしの場合）
+            if connection_type is None:
+                # RSSIがある=WiFi AP直接接続、無い=ESP-NOW
+                connection_type = 'wifi_ap' if rssi is not None else 'esp_now'
+            
             cursor.execute("""
                 INSERT INTO temperatures 
-                (sensor_id, sensor_name, temperature, humidity, rssi, battery_mode, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (sensor_id, sensor_name, temperature, humidity, rssi, int(battery_mode), now))
+                (sensor_id, sensor_name, temperature, humidity, rssi, battery_mode, connection_type, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (sensor_id, sensor_name, temperature, humidity, rssi, int(battery_mode), connection_type, now))
             conn.commit()
             conn.close()
     
@@ -118,8 +124,8 @@ class TemperatureQueries:
             return {}
     
     @staticmethod
-    def get_range_batch(sensor_ids, hours=24):
-        """複数センサーの指定時間範囲のデータを一括取得（高速化）"""
+    def get_range_batch(sensor_ids, hours=24, max_points_per_sensor=500):
+        """複数センサーの指定時間範囲のデータを一括取得（高速化・間引き対応）"""
         if not sensor_ids:
             return {}
         
@@ -131,13 +137,15 @@ class TemperatureQueries:
             
             # プレースホルダーを生成
             placeholders = ','.join(['?' for _ in sensor_ids])
+            
+            # 全データを取得（間引きはPython側で実施）
             query = f"""
                 SELECT * FROM temperatures 
                 WHERE sensor_id IN ({placeholders}) AND timestamp >= ?
                 ORDER BY sensor_id, timestamp ASC
             """
-            
             cursor.execute(query, tuple(sensor_ids) + (since,))
+            
             rows = cursor.fetchall()
             conn.close()
             
@@ -148,6 +156,20 @@ class TemperatureQueries:
                 if sensor_id not in results:
                     results[sensor_id] = []
                 results[sensor_id].append(dict(row))
+            
+            # さらにPython側で間引き（データベース側の間引きが不十分な場合）
+            for sensor_id in results:
+                if len(results[sensor_id]) > max_points_per_sensor:
+                    # 均等に間引き（最初と最後は必ず含める）
+                    original = results[sensor_id]
+                    step = len(original) / max_points_per_sensor
+                    downsampled = [original[0]]  # 最初のポイント
+                    for i in range(1, len(original) - 1):
+                        if int(i / step) != int((i - 1) / step):
+                            downsampled.append(original[i])
+                    if len(original) > 1:
+                        downsampled.append(original[-1])  # 最後のポイント
+                    results[sensor_id] = downsampled
             
             return results
 

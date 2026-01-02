@@ -1,0 +1,37 @@
+# WebUI高速化ファイルをラズパイに転送するコマンド
+
+## PowerShellで実行する場合
+
+以下のコマンドをPowerShellで実行してください：
+
+```powershell
+cd "I:\環境データ収集システム\raspberry_pi"
+.\update_webui_files.ps1
+```
+
+## または、個別に転送する場合
+
+```powershell
+# リモートホスト情報
+$REMOTE_HOST = "raspberry@192.168.1.93"
+$REMOTE_DIR = "/home/raspberry/temperature_monitoring/temperature_server"
+
+# 各ファイルを転送
+scp temperature_server/templates/dashboard.html "${REMOTE_HOST}:${REMOTE_DIR}/templates/dashboard.html"
+scp temperature_server/templates/stream.html "${REMOTE_HOST}:${REMOTE_DIR}/templates/stream.html"
+scp temperature_server/app/routes/api.py "${REMOTE_HOST}:${REMOTE_DIR}/app/routes/api.py"
+scp temperature_server/database/queries.py "${REMOTE_HOST}:${REMOTE_DIR}/database/queries.py"
+```
+
+## サーバー再起動（必要に応じて）
+
+```powershell
+ssh raspberry@192.168.1.93 "cd /home/raspberry/temperature_monitoring/temperature_server && pkill -f 'python.*run.py' && sleep 2 && source venv/bin/activate && nohup python run.py > server.log 2>&1 &"
+```
+
+## 動作確認
+
+ブラウザで以下にアクセス：
+- http://192.168.1.93:5000/ （ダッシュボード）
+- http://192.168.1.93:5000/stream （ストリーミング）
+

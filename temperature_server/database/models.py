@@ -24,6 +24,7 @@ def init_database():
             humidity REAL,
             rssi INTEGER,
             battery_mode INTEGER DEFAULT 0,
+            connection_type TEXT DEFAULT 'unknown',
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
