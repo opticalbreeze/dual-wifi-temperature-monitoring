@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>温度監視ダッシュボード</title>
+    <link rel="icon" href="data:,"> <!-- favicon.icoの404エラーを防止 -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -352,18 +353,18 @@
         // センサーリストを共有（重複リクエストを削減）
         let cachedSensorsData = null;
         let lastSensorsUpdate = 0;
-        const SENSORS_CACHE_TTL = 2000; // 2秒間キャッシュ
+        const SENSORS_CACHE_TTL = 5000; // 5秒間キャッシュ（延長）
         
         // APステータスをキャッシュ（重複リクエストを削減）
         let cachedApStatus = null;
         let lastApStatusUpdate = 0;
-        const AP_STATUS_CACHE_TTL = 10000; // 10秒間キャッシュ（AP状態は頻繁に変わらない）
+        const AP_STATUS_CACHE_TTL = 30000; // 30秒間キャッシュ（AP状態は頻繁に変わらない）
         
         // グラフの最大データポイント数（Chart.jsのパフォーマンス向上のため）
         const MAX_CHART_POINTS = 500; // 最大500ポイント（それ以上は間引き）
         
-        // 間引きのON/OFF設定（初期値: OFF = 全データ読み込み）
-        let downsamplingEnabled = false;
+        // 間引きのON/OFF設定（初期値: ON = 高速化のためデフォルトで間引き有効）
+        let downsamplingEnabled = true;  // デフォルトでONにして読み込み時間を短縮
         
         // データを間引き（ダウンサンプリング）する関数（最大値・最小値・急激な変化を保持）
         function downsampleData(dataPoints, maxPoints) {
@@ -680,15 +681,14 @@
             // 読み込み中表示を表示（tryブロックの外で定義してfinallyでも参照可能にする）
             const loadingEl = document.getElementById('chart-loading');
             
-            // 読み込み表示を即座に表示
+            // 読み込み表示を即座に表示（遅延を削除して高速化）
             if (loadingEl) {
-                loadingEl.style.display = 'flex'; // flex表示に変更
+                loadingEl.style.display = 'flex';
             }
-            
-            // 少し遅延を入れて確実に表示されるようにする（UIのため）
-            await new Promise(resolve => setTimeout(resolve, 50));
 
             try {
+                // 読み込み開始時刻を記録（パフォーマンス測定）
+                const loadStartTime = performance.now();
                 console.log(`[updateChart] グラフ更新開始 (${new Date().toLocaleTimeString()}) - ${currentHours}時間分`);
 
                 // センサーリストを取得（キャッシュから）
@@ -705,6 +705,10 @@
                 const sensorIds = sensorsData.sensors.map(s => s.sensor_id);
                 
                 // バッチAPIで全センサーのデータを1回のリクエストで取得（高速化）
+                // タイムアウトを設定して長時間待機を防止
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒タイムアウト
+                
                 const batchResponse = await fetch('/api/temperature/batch', {
                     method: 'POST',
                     headers: {
@@ -713,8 +717,11 @@
                     body: JSON.stringify({
                         sensor_ids: sensorIds,
                         hours: currentHours
-                    })
+                    }),
+                    signal: controller.signal
                 });
+                
+                clearTimeout(timeoutId);
 
                 if (!batchResponse.ok) {
                     throw new Error(`Batch API error: ${batchResponse.status}`);
@@ -735,18 +742,19 @@
                 const allTemps = [];
                 let totalOriginalPoints = 0; // 元のデータポイント数を記録
 
-                // バッチデータを処理
-                for (const sensorId of sensorIds) {
+                // バッチデータを処理（並列処理で高速化）
+                const processingPromises = sensorIds.map(async (sensorId) => {
                     const sensor = sensorsData.sensors.find(s => s.sensor_id === sensorId);
-                    if (!sensor) continue;
+                    if (!sensor) return null;
                     
                     const readings = batchData.data[sensorId]?.readings || [];
                     if (readings.length === 0) {
-                        continue;
+                        return null;
                     }
 
                     totalOriginalPoints += readings.length; // 元のデータポイント数を記録
 
+                    // ソートを高速化（事前にソート済みの可能性があるが、念のため）
                     const sortedReadings = readings.sort((a, b) => {
                         return new Date(a.timestamp) - new Date(b.timestamp);
                     });
@@ -764,11 +772,25 @@
                         ? downsampleData(dataPoints, MAX_CHART_POINTS)
                         : dataPoints; // 間引きOFFの場合は全データを使用
                     
-                    sensorDataMap[sensorId] = {
+                    return {
+                        sensorId: sensorId,
                         dataPoints: downsampledPoints,
                         name: sensor.sensor_name || sensorId
                     };
-                }
+                });
+                
+                // 並列処理を実行
+                const processedData = await Promise.all(processingPromises);
+                
+                // sensorDataMapに格納
+                processedData.forEach(result => {
+                    if (result) {
+                        sensorDataMap[result.sensorId] = {
+                            dataPoints: result.dataPoints,
+                            name: result.name
+                        };
+                    }
+                });
                 
                 // すべてのタイムスタンプを収集してソート
                 const allTimestamps = new Set();
@@ -841,7 +863,8 @@
                 temperatureChart.update('none');
                 
                 const totalPoints = sortedLabels.length;
-                console.log(`[updateChart] グラフ更新完了 (${new Date().toLocaleTimeString()}) - ${totalPoints}ポイント表示（元データ: ${totalOriginalPoints}ポイント、間引き率: ${totalOriginalPoints > 0 ? ((1 - totalPoints / totalOriginalPoints) * 100).toFixed(1) : 0}%）`);
+                const loadTime = (performance.now() - loadStartTime).toFixed(0);
+                console.log(`[updateChart] グラフ更新完了 (${new Date().toLocaleTimeString()}) - ${totalPoints}ポイント表示（元データ: ${totalOriginalPoints}ポイント、間引き率: ${totalOriginalPoints > 0 ? ((1 - totalPoints / totalOriginalPoints) * 100).toFixed(1) : 0}%、読み込み時間: ${loadTime}ms）`);
                 
                 // グラフデータがないセンサーは updateData() で既に表示されているため、ここでは追加しない
                 // （重複を避けるため）
@@ -1026,7 +1049,7 @@
             }
         }
 
-        // デバウンス関数（グラフ更新の高速化）
+        // デバウンス関数（グラフ更新の高速化、デバウンス時間を短縮）
         let chartUpdateTimeout = null;
         function debouncedUpdateChart() {
             if (chartUpdateTimeout) {
@@ -1034,7 +1057,7 @@
             }
             chartUpdateTimeout = setTimeout(() => {
                 requestAnimationFrame(() => updateChart());
-            }, 100);
+            }, 50); // 100ms → 50msに短縮
         }
 
         // 間引き切り替えボタンの状態を更新
@@ -1067,15 +1090,15 @@
         updateChart(); // グラフ表示
 
         // 定期更新（requestAnimationFrameを使用して描画を最適化）
-        // センサーリストは2秒間キャッシュされるため、5秒ごとの更新でも効率的
+        // センサーリストは5秒間キャッシュされるため、15秒ごとの更新で効率的
         setInterval(() => {
             requestAnimationFrame(() => updateData());
-        }, 5000);      // 5秒ごとに温度値のみ更新（DOM再構築なし）
+        }, 15000);    // 15秒ごとに温度値のみ更新（DOM再構築なし、5秒→15秒に延長）
         
-        // グラフ更新は30秒ごとに実行（バッチAPIで1回のリクエストで全データ取得）
+        // グラフ更新は60秒ごとに実行（バッチAPIで1回のリクエストで全データ取得）
         setInterval(() => {
             debouncedUpdateChart();
-        }, 30000);    // 30秒ごとにグラフ更新（デバウンス適用）
+        }, 60000);    // 60秒ごとにグラフ更新（30秒→60秒に延長、デバウンス適用）
     </script>
 </body>
 </html>

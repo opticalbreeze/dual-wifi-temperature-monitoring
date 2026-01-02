@@ -5,10 +5,16 @@ Flask アプリケーション初期化
 
 from flask import Flask, request
 from flask_cors import CORS
-from flask_compress import Compress
 from pathlib import Path
 from config import Config
 from logger import setup_logger
+
+# flask_compressはオプション（インストールされていなくても動作する）
+try:
+    from flask_compress import Compress
+    compress_available = True
+except ImportError:
+    compress_available = False
 
 logger = setup_logger(__name__)
 
@@ -23,9 +29,12 @@ def create_app():
     app.config['DEBUG'] = Config.FLASK_DEBUG
     app.config['SECRET_KEY'] = Config.SECRET_KEY
     
-    # gzip圧縮を有効化（通信量削減）
-    Compress(app)
-    logger.info("Response compression (gzip) enabled")
+    # gzip圧縮を有効化（通信量削減、オプション）
+    if compress_available:
+        Compress(app)
+        logger.info("Response compression (gzip) enabled")
+    else:
+        logger.info("Response compression disabled (flask-compress not installed)")
     
     # ===== リクエストロギングミドルウェア（全リクエストを記録） =====
     @app.before_request
