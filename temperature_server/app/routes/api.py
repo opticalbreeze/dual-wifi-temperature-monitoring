@@ -251,29 +251,41 @@ def get_temperature_batch():
             return jsonify({'status': 'error', 'message': 'sensor_idsが指定されていません'}), 400
         
         sensor_ids = data.get('sensor_ids', [])
-        hours = float(data.get('hours', 24))
-        max_points = int(data.get('max_points', 500))  # クライアント側で指定可能
+        # hoursがNoneの場合はデフォルト値を使用
+        hours_value = data.get('hours', 24)
+        hours = float(hours_value) if hours_value is not None else 24.0
+        # 初期読み込み時は間引きを強制（パフォーマンス向上）
+        max_points_value = data.get('max_points')
+        if max_points_value is not None:
+            max_points = int(max_points_value)
+        else:
+            max_points = 200 if hours <= 1 else 500  # 1時間以下は200ポイントに制限
         
         if not isinstance(sensor_ids, list) or len(sensor_ids) == 0:
             return jsonify({'status': 'error', 'message': 'sensor_idsは空でないリストである必要があります'}), 400
         
         logger.debug(f"GET /api/temperature/batch - sensor_ids={sensor_ids}, hours={hours}, max_points={max_points}")
         
-        # バッチ取得（サーバー側で間引き）
-        readings_map = TemperatureQueries.get_range_batch(sensor_ids, hours)
+        # バッチ取得（サーバー側で間引き、統計情報は取得しない（高速化））
+        readings_map = TemperatureQueries.get_range_batch(sensor_ids, hours, max_points_per_sensor=max_points)
         
-        # 各センサーの統計も取得
+        # 統計情報は取得しない（初期読み込み時の高速化）
+        include_stats = data.get('include_stats', False)  # デフォルトはFalse
+        
         results = {}
         total_original_points = 0
         total_downsampled_points = 0
         
         for sensor_id in sensor_ids:
             readings = readings_map.get(sensor_id, [])
-            stats = TemperatureQueries.get_statistics(sensor_id, hours)
-            results[sensor_id] = {
-                "readings": readings,
-                "statistics": stats
+            result_data = {
+                "readings": readings
             }
+            # 統計情報が必要な場合のみ取得（通常は不要）
+            if include_stats:
+                stats = TemperatureQueries.get_statistics(sensor_id, hours)
+                result_data["statistics"] = stats
+            results[sensor_id] = result_data
             total_downsampled_points += len(readings)
         
         logger.debug(f"GET /api/temperature/batch - Found data for {len(results)} sensors, {total_downsampled_points} total points")
@@ -345,7 +357,7 @@ def get_dashboard_combined():
         logger.info(f"[{request_id}] GET /api/dashboard/combined - sensor_ids={sensor_ids}, hours={hours}")
         
         # センサーリストを取得
-        sensors = TemperatureQueries.get_all_sensors()
+        sensors = TemperatureQueries.get_all_latest()
         
         # グラフデータを取得
         if sensor_ids and len(sensor_ids) > 0:
