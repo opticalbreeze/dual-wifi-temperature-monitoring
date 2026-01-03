@@ -251,8 +251,8 @@ def get_temperature_batch():
             return jsonify({'status': 'error', 'message': 'sensor_idsが指定されていません'}), 400
         
         sensor_ids = data.get('sensor_ids', [])
-        hours = data.get('hours', 24, type=float)
-        max_points = data.get('max_points', 500, type=int)  # クライアント側で指定可能
+        hours = float(data.get('hours', 24))
+        max_points = int(data.get('max_points', 500))  # クライアント側で指定可能
         
         if not isinstance(sensor_ids, list) or len(sensor_ids) == 0:
             return jsonify({'status': 'error', 'message': 'sensor_idsは空でないリストである必要があります'}), 400
@@ -260,7 +260,7 @@ def get_temperature_batch():
         logger.debug(f"GET /api/temperature/batch - sensor_ids={sensor_ids}, hours={hours}, max_points={max_points}")
         
         # バッチ取得（サーバー側で間引き）
-        readings_map = TemperatureQueries.get_range_batch(sensor_ids, hours, max_points_per_sensor=max_points)
+        readings_map = TemperatureQueries.get_range_batch(sensor_ids, hours)
         
         # 各センサーの統計も取得
         results = {}
@@ -329,5 +329,49 @@ def get_ap_status():
         return jsonify({
             "status": "error",
             "message": str(e)
+        }), 500
+
+
+@api_bp.route('/dashboard/combined', methods=['POST'])
+def get_dashboard_combined():
+    """ダッシュボード用統合エンドポイント（センサーリスト＋グラフデータを一度に取得）"""
+    request_id = str(uuid.uuid4())[:8]
+    
+    try:
+        data = request.get_json() or {}
+        sensor_ids = data.get('sensor_ids', [])
+        hours = float(data.get('hours', 6))  # デフォルト6時間
+        
+        logger.info(f"[{request_id}] GET /api/dashboard/combined - sensor_ids={sensor_ids}, hours={hours}")
+        
+        # センサーリストを取得
+        sensors = TemperatureQueries.get_all_sensors()
+        
+        # グラフデータを取得
+        if sensor_ids and len(sensor_ids) > 0:
+            readings_map = TemperatureQueries.get_range_batch(sensor_ids, hours)
+        else:
+            readings_map = {}
+        
+        # レスポンス構築
+        response = {
+            "status": "success",
+            "request_id": request_id,
+            "sensors": sensors,
+            "data": readings_map,
+            "hours": hours,
+            "count": len(sensors)
+        }
+        
+        logger.info(f"[{request_id}] Dashboard combined data ready - {len(sensors)} sensors, {sum(len(v.get('readings', [])) for v in readings_map.values())} data points")
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        logger.error(f"[{request_id}] Error fetching dashboard combined data: {e}")
+        return jsonify({
+            "status": "error",
+            "message": str(e),
+            "request_id": request_id
         }), 500
 

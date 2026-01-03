@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>温度監視ダッシュボード</title>
-    <link rel="icon" href="data:,"> <!-- favicon.icoの404エラーを防止 -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -339,6 +338,16 @@
     </div>
 
     <script>
+        // HTMLエスケープ関数（XSS対策）
+        function escapeHtml(text) {
+            if (text == null || text === undefined) {
+                return '';
+            }
+            const div = document.createElement('div');
+            div.textContent = String(text);
+            return div.innerHTML;
+        }
+        
         // Chart.js の設定
         let temperatureChart = null;
         let currentHours = 24; // デフォルトは24時間（直近1日）
@@ -353,18 +362,27 @@
         // センサーリストを共有（重複リクエストを削減）
         let cachedSensorsData = null;
         let lastSensorsUpdate = 0;
-        const SENSORS_CACHE_TTL = 5000; // 5秒間キャッシュ（延長）
+        const SENSORS_CACHE_TTL = 2000; // 2秒間キャッシュ
         
         // APステータスをキャッシュ（重複リクエストを削減）
         let cachedApStatus = null;
         let lastApStatusUpdate = 0;
-        const AP_STATUS_CACHE_TTL = 30000; // 30秒間キャッシュ（AP状態は頻繁に変わらない）
+        const AP_STATUS_CACHE_TTL = 10000; // 10秒間キャッシュ（AP状態は頻繁に変わらない）
         
         // グラフの最大データポイント数（Chart.jsのパフォーマンス向上のため）
         const MAX_CHART_POINTS = 500; // 最大500ポイント（それ以上は間引き）
         
-        // 間引きのON/OFF設定（初期値: ON = 高速化のためデフォルトで間引き有効）
-        let downsamplingEnabled = true;  // デフォルトでONにして読み込み時間を短縮
+        // 間引きのON/OFF設定（初期値: OFF = 全データ読み込み）
+        let downsamplingEnabled = false;
+        
+        // セットの等価性チェック（パフォーマンス最適化用）
+        function setsEqual(set1, set2) {
+            if (set1.size !== set2.size) return false;
+            for (const item of set1) {
+                if (!set2.has(item)) return false;
+            }
+            return true;
+        }
         
         // データを間引き（ダウンサンプリング）する関数（最大値・最小値・急激な変化を保持）
         function downsampleData(dataPoints, maxPoints) {
@@ -527,7 +545,15 @@
                 // 期間が変更された場合のみデータを再読み込み
                 if (newHours !== currentHours) {
                     currentHours = newHours;
-                    formatLabelCache.clear(); // キャッシュをクリア
+                    formatLabelCache.clear(); // LRUキャッシュをクリア
+                    
+                    // 24時間データのキャッシュがあれば使用（バックグラウンド読み込み済み）
+                    if (newHours === 24 && window.dashboardFullDataCache) {
+                        console.log('[Dashboard] 24時間キャッシュから復元');
+                        cachedSensorsData = window.dashboardFullDataCache;
+                        lastSensorsUpdate = Date.now();
+                    }
+                    
                     updateChart(); // データを再読み込み（読み込み中表示付き）
                 }
             });
@@ -561,11 +587,11 @@
 
             return `
                 <div class="card">
-                    <h3>${sensor.sensor_name || sensor.sensor_id}</h3>
+                    <h3>${escapeHtml(sensor.sensor_name || sensor.sensor_id)}</h3>
                     <div class="temp-display">${sensor.temperature.toFixed(1)}°C</div>
                     <div class="sensor-info">
-                        <p><strong>センサーID:</strong> ${sensor.sensor_id}</p>
-                        <p><strong>最終更新:</strong> ${timeStr}</p>
+                        <p><strong>センサーID:</strong> ${escapeHtml(sensor.sensor_id)}</p>
+                        <p><strong>最終更新:</strong> ${escapeHtml(timeStr)}</p>
                         ${sensor.humidity ? `<p><strong>湿度:</strong> ${sensor.humidity.toFixed(1)}%</p>` : ''}
                         ${sensor.rssi ? `<p><strong>WiFi信号:</strong> ${sensor.rssi} dBm ${signalBars}</p>` : ''}
                         <p><strong>電源:</strong> ${batteryIcon}</p>
@@ -603,19 +629,59 @@
             return `
                 <div class="card minimal">
                     <div class="minimal-content">
-                        <div class="sensor-name">${sensor.sensor_name || sensor.sensor_id}</div>
-                        <div class="last-update">最終更新: ${timeStr}</div>
+                        <div class="sensor-name">${escapeHtml(sensor.sensor_name || sensor.sensor_id)}</div>
+                        <div class="last-update">最終更新: ${escapeHtml(timeStr)}</div>
                     </div>
                 </div>
             `;
         }
 
-        // ラベルフォーマット関数（期間に応じた表示形式、最適化）
-        const formatLabelCache = new Map();
+        // LRUキャッシュクラス（Least Recently Used）
+        class LRUCache {
+            constructor(maxSize = 1000) {
+                this.maxSize = maxSize;
+                this.cache = new Map();
+            }
+            
+            get(key) {
+                if (this.cache.has(key)) {
+                    // アクセスされたエントリを最後に移動（LRU）
+                    const value = this.cache.get(key);
+                    this.cache.delete(key);
+                    this.cache.set(key, value);
+                    return value;
+                }
+                return undefined;
+            }
+            
+            set(key, value) {
+                if (this.cache.has(key)) {
+                    // 既存のエントリを更新して最後に移動
+                    this.cache.delete(key);
+                } else if (this.cache.size >= this.maxSize) {
+                    // 最大サイズに達した場合、最も古い（最初の）エントリを削除
+                    const firstKey = this.cache.keys().next().value;
+                    this.cache.delete(firstKey);
+                }
+                this.cache.set(key, value);
+            }
+            
+            clear() {
+                this.cache.clear();
+            }
+            
+            get size() {
+                return this.cache.size;
+            }
+        }
+        
+        // ラベルフォーマット関数（期間に応じた表示形式、LRUキャッシュ使用）
+        const formatLabelCache = new LRUCache(1000);
         function formatLabel(date, hours) {
             const cacheKey = `${date.getTime()}-${hours}`;
-            if (formatLabelCache.has(cacheKey)) {
-                return formatLabelCache.get(cacheKey);
+            const cached = formatLabelCache.get(cacheKey);
+            if (cached !== undefined) {
+                return cached;
             }
             
             let formatted;
@@ -642,11 +708,6 @@
                 });
             }
             
-            // キャッシュサイズを制限（メモリリーク防止）
-            if (formatLabelCache.size > 1000) {
-                const firstKey = formatLabelCache.keys().next().value;
-                formatLabelCache.delete(firstKey);
-            }
             formatLabelCache.set(cacheKey, formatted);
             return formatted;
         }
@@ -674,21 +735,35 @@
             }
         }
 
+        // グラフ更新の重複リクエスト防止
+        let isChartUpdating = false;
+        let pendingChartUpdate = false;
+        
         // グラフデータを更新（高速化：バッチAPI使用）
         async function updateChart() {
             if (!temperatureChart) return;
+            
+            // 既に更新中の場合は、次の更新を予約
+            if (isChartUpdating) {
+                pendingChartUpdate = true;
+                return;
+            }
+            
+            isChartUpdating = true;
+            pendingChartUpdate = false;
 
             // 読み込み中表示を表示（tryブロックの外で定義してfinallyでも参照可能にする）
             const loadingEl = document.getElementById('chart-loading');
             
-            // 読み込み表示を即座に表示（遅延を削除して高速化）
+            // 読み込み表示を即座に表示
             if (loadingEl) {
-                loadingEl.style.display = 'flex';
+                loadingEl.style.display = 'flex'; // flex表示に変更
             }
+            
+            // 少し遅延を入れて確実に表示されるようにする（UIのため）
+            await new Promise(resolve => setTimeout(resolve, 50));
 
             try {
-                // 読み込み開始時刻を記録（パフォーマンス測定）
-                const loadStartTime = performance.now();
                 console.log(`[updateChart] グラフ更新開始 (${new Date().toLocaleTimeString()}) - ${currentHours}時間分`);
 
                 // センサーリストを取得（キャッシュから）
@@ -705,10 +780,6 @@
                 const sensorIds = sensorsData.sensors.map(s => s.sensor_id);
                 
                 // バッチAPIで全センサーのデータを1回のリクエストで取得（高速化）
-                // タイムアウトを設定して長時間待機を防止
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒タイムアウト
-                
                 const batchResponse = await fetch('/api/temperature/batch', {
                     method: 'POST',
                     headers: {
@@ -717,11 +788,8 @@
                     body: JSON.stringify({
                         sensor_ids: sensorIds,
                         hours: currentHours
-                    }),
-                    signal: controller.signal
+                    })
                 });
-                
-                clearTimeout(timeoutId);
 
                 if (!batchResponse.ok) {
                     throw new Error(`Batch API error: ${batchResponse.status}`);
@@ -742,19 +810,18 @@
                 const allTemps = [];
                 let totalOriginalPoints = 0; // 元のデータポイント数を記録
 
-                // バッチデータを処理（並列処理で高速化）
-                const processingPromises = sensorIds.map(async (sensorId) => {
+                // バッチデータを処理
+                for (const sensorId of sensorIds) {
                     const sensor = sensorsData.sensors.find(s => s.sensor_id === sensorId);
-                    if (!sensor) return null;
+                    if (!sensor) continue;
                     
                     const readings = batchData.data[sensorId]?.readings || [];
                     if (readings.length === 0) {
-                        return null;
+                        continue;
                     }
 
                     totalOriginalPoints += readings.length; // 元のデータポイント数を記録
 
-                    // ソートを高速化（事前にソート済みの可能性があるが、念のため）
                     const sortedReadings = readings.sort((a, b) => {
                         return new Date(a.timestamp) - new Date(b.timestamp);
                     });
@@ -772,25 +839,11 @@
                         ? downsampleData(dataPoints, MAX_CHART_POINTS)
                         : dataPoints; // 間引きOFFの場合は全データを使用
                     
-                    return {
-                        sensorId: sensorId,
+                    sensorDataMap[sensorId] = {
                         dataPoints: downsampledPoints,
                         name: sensor.sensor_name || sensorId
                     };
-                });
-                
-                // 並列処理を実行
-                const processedData = await Promise.all(processingPromises);
-                
-                // sensorDataMapに格納
-                processedData.forEach(result => {
-                    if (result) {
-                        sensorDataMap[result.sensorId] = {
-                            dataPoints: result.dataPoints,
-                            name: result.name
-                        };
-                    }
-                });
+                }
                 
                 // すべてのタイムスタンプを収集してソート
                 const allTimestamps = new Set();
@@ -863,17 +916,48 @@
                 temperatureChart.update('none');
                 
                 const totalPoints = sortedLabels.length;
-                const loadTime = (performance.now() - loadStartTime).toFixed(0);
-                console.log(`[updateChart] グラフ更新完了 (${new Date().toLocaleTimeString()}) - ${totalPoints}ポイント表示（元データ: ${totalOriginalPoints}ポイント、間引き率: ${totalOriginalPoints > 0 ? ((1 - totalPoints / totalOriginalPoints) * 100).toFixed(1) : 0}%、読み込み時間: ${loadTime}ms）`);
+                console.log(`[updateChart] グラフ更新完了 (${new Date().toLocaleTimeString()}) - ${totalPoints}ポイント表示（元データ: ${totalOriginalPoints}ポイント、間引き率: ${totalOriginalPoints > 0 ? ((1 - totalPoints / totalOriginalPoints) * 100).toFixed(1) : 0}%）`);
                 
                 // グラフデータがないセンサーは updateData() で既に表示されているため、ここでは追加しない
                 // （重複を避けるため）
             } catch (error) {
                 console.error('Error updating chart:', error);
+                
+                // 既存のエラーメッセージを削除
+                const existingError = document.querySelector('.chart-error-message');
+                if (existingError) {
+                    existingError.remove();
+                }
+                
+                // ユーザーにエラーを表示
+                const errorMsg = document.createElement('div');
+                errorMsg.className = 'chart-error-message';
+                errorMsg.textContent = 'グラフデータの読み込みに失敗しました。再試行します...';
+                errorMsg.style.cssText = 'position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: #f44336; color: white; padding: 10px 20px; border-radius: 5px; z-index: 1000; box-shadow: 0 2px 10px rgba(0,0,0,0.2); font-size: 0.9em;';
+                
+                const chartContainer = document.querySelector('.chart-container');
+                if (chartContainer) {
+                    chartContainer.style.position = 'relative';
+                    chartContainer.appendChild(errorMsg);
+                    
+                    // 5秒後に再試行
+                    setTimeout(() => {
+                        errorMsg.remove();
+                        updateChart();
+                    }, 5000);
+                }
             } finally {
                 // 読み込み中表示を非表示
                 if (loadingEl) {
                     loadingEl.style.display = 'none';
+                }
+                
+                isChartUpdating = false;
+                
+                // 待機中の更新リクエストがあれば実行
+                if (pendingChartUpdate) {
+                    pendingChartUpdate = false;
+                    setTimeout(() => updateChart(), 100);
                 }
             }
         }
@@ -906,8 +990,8 @@
                     });
                     return `
                         <div class="alert-sensor">
-                            <strong>${sensor.sensor_name || sensor.sensor_id}</strong><br>
-                            温度: <strong>${sensor.temperature.toFixed(1)}°C</strong> (${timeStr})
+                            <strong>${escapeHtml(sensor.sensor_name || sensor.sensor_id)}</strong><br>
+                            温度: <strong>${sensor.temperature.toFixed(1)}°C</strong> (${escapeHtml(timeStr)})
                         </div>
                     `;
                 }).join('');
@@ -928,6 +1012,9 @@
         }
         
         // リアルタイムデータ更新（センサーカード温度値のみ更新、HTML再生成は避ける）
+        let lastSensorCount = 0; // 前回のセンサー数を記録（不要な再生成を防止）
+        let lastSensorIds = new Set(); // 前回のセンサーIDを記録
+        
         async function updateData() {
             try {
                 // センサーリストを取得（キャッシュから、必要に応じて更新）
@@ -935,22 +1022,36 @@
                 
                 // 初回呼び出し時のみセンサーカードを生成
                 const sensorsGrid = document.getElementById('sensors-grid');
-                if (sensorsGrid.children.length === 0) {
+                const currentSensorCount = sensorsData.sensors?.length || 0;
+                const currentSensorIds = new Set(sensorsData.sensors?.map(s => s.sensor_id) || []);
+                
+                // センサー数やIDが変更された場合のみ再生成
+                const needsRegeneration = sensorsGrid.children.length === 0 || 
+                                         currentSensorCount !== lastSensorCount ||
+                                         !setsEqual(currentSensorIds, lastSensorIds);
+                
+                if (needsRegeneration) {
                     if (sensorsData.sensors && sensorsData.sensors.length > 0) {
                         sensorsGrid.innerHTML = sensorsData.sensors.map(sensor => createSensorCard(sensor)).join('');
                     } else {
                         sensorsGrid.innerHTML = '<div class="card"><h2>センサー未接続</h2><p>ESP32からのデータを受信していません</p></div>';
                     }
+                    lastSensorCount = currentSensorCount;
+                    lastSensorIds = new Set(currentSensorIds);
                 } else if (sensorsData.sensors && sensorsData.sensors.length > 0) {
-                    // 2回目以降：温度値のみ更新（DOM再構築なし）
+                    // 2回目以降：温度値のみ更新（DOM再構築なし、変更があった場合のみ）
                     const cards = sensorsGrid.querySelectorAll('.card:not(:first-child)');
                     sensorsData.sensors.forEach((sensor, i) => {
                         if (cards[i]) {
                             const tempEl = cards[i].querySelector('.temp-display');
                             if (tempEl) {
-                                tempEl.textContent = `${sensor.temperature.toFixed(1)}°C`;
+                                const newTemp = `${sensor.temperature.toFixed(1)}°C`;
+                                // 値が変更された場合のみ更新（不要なDOM操作を削減）
+                                if (tempEl.textContent !== newTemp) {
+                                    tempEl.textContent = newTemp;
+                                }
                             }
-                            // 最終更新時刻を更新
+                            // 最終更新時刻を更新（変更があった場合のみ）
                             const updateEl = cards[i].querySelector('.sensor-info p:nth-child(2)');
                             if (updateEl && sensor.timestamp) {
                                 const timestamp = new Date(sensor.timestamp);
@@ -959,7 +1060,11 @@
                                     hour: '2-digit', minute: '2-digit', second: '2-digit',
                                     timeZone: 'Asia/Tokyo'
                                 });
-                                updateEl.innerHTML = `<strong>最終更新:</strong> ${timeStr}`;
+                                const newContent = `<strong>最終更新:</strong> ${escapeHtml(timeStr)}`;
+                                // 値が変更された場合のみ更新
+                                if (updateEl.innerHTML !== newContent) {
+                                    updateEl.innerHTML = newContent;
+                                }
                             }
                         }
                     });
@@ -1049,15 +1154,25 @@
             }
         }
 
-        // デバウンス関数（グラフ更新の高速化、デバウンス時間を短縮）
+        // デバウンス関数（グラフ更新の高速化、設定可能）
         let chartUpdateTimeout = null;
-        function debouncedUpdateChart() {
+        let chartDebounceDelay = 100; // デフォルト100ms（調整可能）
+        function debouncedUpdateChart(customDelay = null) {
             if (chartUpdateTimeout) {
                 clearTimeout(chartUpdateTimeout);
             }
+            const delay = customDelay !== null ? customDelay : chartDebounceDelay;
             chartUpdateTimeout = setTimeout(() => {
                 requestAnimationFrame(() => updateChart());
-            }, 50); // 100ms → 50msに短縮
+            }, delay);
+        }
+        
+        // デバウンス時間を調整する関数（必要に応じて使用可能）
+        function setChartDebounceDelay(ms) {
+            if (typeof ms === 'number' && ms >= 0 && ms <= 1000) {
+                chartDebounceDelay = ms;
+                console.log(`グラフ更新のデバウンス時間を ${ms}ms に設定しました`);
+            }
         }
 
         // 間引き切り替えボタンの状態を更新
@@ -1086,19 +1201,68 @@
         // 初期化（一度だけ実行）
         initChart();
         updateDownsamplingButton(); // ボタンの初期状態を設定
-        updateData();  // センサーカード表示
-        updateChart(); // グラフ表示
+        
+        // 【高速化】2段階読み込み実装
+        // Step 1: 統合APIで6時間分のデータを高速読み込み（初期表示用）
+        (async () => {
+            console.log('[Dashboard] 初期ロード開始 - 6時間データを読み込み中...');
+            try {
+                const initialResponse = await fetch('/api/dashboard/combined', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ hours: 6 })
+                });
+                
+                if (initialResponse.ok) {
+                    const initialData = await initialResponse.json();
+                    cachedSensorsData = initialData;
+                    lastSensorsUpdate = Date.now();
+                    
+                    // センサーカード＆6時間グラフを表示
+                    updateData();
+                    currentHours = 6;
+                    updateChart();
+                    console.log('[Dashboard] 初期ロード完了 - 6時間グラフを表示');
+                    
+                    // Step 2: バックグラウンドで24時間データを非同期読み込み
+                    setTimeout(async () => {
+                        console.log('[Dashboard] 24時間データを非同期読み込み中...');
+                        try {
+                            const fullResponse = await fetch('/api/dashboard/combined', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ hours: 24 })
+                            });
+                            
+                            if (fullResponse.ok) {
+                                const fullData = await fullResponse.json();
+                                // キャッシュを更新（ユーザーが24時間を選択した際に使用）
+                                window.dashboardFullDataCache = fullData;
+                                console.log('[Dashboard] 24時間データの読み込み完了（キャッシュに保存）');
+                            }
+                        } catch (error) {
+                            console.error('[Dashboard] 24時間データ読み込みエラー:', error);
+                        }
+                    }, 2000); // 初期表示後2秒後に開始
+                }
+            } catch (error) {
+                console.error('[Dashboard] 初期ロードエラー:', error);
+                // フォールバック：従来の方法で読み込み
+                updateData();
+                updateChart();
+            }
+        })();
 
         // 定期更新（requestAnimationFrameを使用して描画を最適化）
-        // センサーリストは5秒間キャッシュされるため、15秒ごとの更新で効率的
+        // センサーリストは2秒間キャッシュされるため、5秒ごとの更新でも効率的
         setInterval(() => {
             requestAnimationFrame(() => updateData());
-        }, 15000);    // 15秒ごとに温度値のみ更新（DOM再構築なし、5秒→15秒に延長）
+        }, 5000);      // 5秒ごとに温度値のみ更新（DOM再構築なし）
         
-        // グラフ更新は60秒ごとに実行（バッチAPIで1回のリクエストで全データ取得）
+        // グラフ更新は30秒ごとに実行（バッチAPIで1回のリクエストで全データ取得）
         setInterval(() => {
             debouncedUpdateChart();
-        }, 60000);    // 60秒ごとにグラフ更新（30秒→60秒に延長、デバウンス適用）
+        }, 30000);    // 30秒ごとにグラフ更新（デバウンス適用）
     </script>
 </body>
 </html>
