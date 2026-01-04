@@ -612,7 +612,7 @@
             }
 
             return `
-                <div class="card">
+                <div class="card" data-sensor-id="${escapeHtml(sensor.sensor_id)}">
                     <h3>${escapeHtml(sensor.sensor_name || sensor.sensor_id)}</h3>
                     <div class="temp-display">${sensor.temperature.toFixed(1)}°C</div>
                     <div class="sensor-info">
@@ -900,8 +900,9 @@
             try {
                 console.log(`[updateChart] グラフ更新開始 (${new Date().toLocaleTimeString()}) - ${currentHours}時間分`);
 
-                // センサーリストを取得（パラメータで渡された場合はそれを使用、なければキャッシュから）
-                const sensorsData = sensorsDataParam || await getSensorsData();
+                // センサーリストを取得（必ず最新データを取得）
+                // パラメータで渡された場合はそれを使用、なければ強制リフレッシュで最新を取得
+                const sensorsData = sensorsDataParam || await getSensorsData(true);  // true = 強制リフレッシュ
                 
                 if (!sensorsData || !sensorsData.sensors || sensorsData.sensors.length === 0) {
                     // データがない場合は読み込み表示を消して終了
@@ -916,6 +917,11 @@
                 const sensorIds = sensorsData.sensors.map(s => s.sensor_id);
                 
                 // バッチAPIで全センサーのデータを1回のリクエストで取得（高速化）
+                // 期間に応じて max_points を動的に設定（データ粗さを軽減）
+                const maxPoints = currentHours <= 1 ? 100 : 
+                                  currentHours <= 24 ? 500 :
+                                  currentHours <= 168 ? 1000 : 2000;
+                
                 const batchResponse = await fetch('/api/temperature/batch', {
                     method: 'POST',
                     headers: {
@@ -924,7 +930,7 @@
                     body: JSON.stringify({
                         sensor_ids: sensorIds,
                         hours: currentHours,
-                        max_points: 200,  // 初期読み込み時は200ポイントに制限
+                        max_points: maxPoints,  // 期間に応じた動的値
                         include_stats: false  // 統計情報は取得しない（高速化）
                     })
                 });
@@ -1196,10 +1202,13 @@
                     lastSensorIds = new Set(currentSensorIds);
                 } else if (sensorsData.sensors && sensorsData.sensors.length > 0) {
                     // 2回目以降：温度値のみ更新（DOM再構築なし、変更があった場合のみ）
-                    const cards = sensorsGrid.querySelectorAll('.card:not(:first-child)');
-                    sensorsData.sensors.forEach((sensor, i) => {
-                        if (cards[i]) {
-                            const tempEl = cards[i].querySelector('.temp-display');
+                    // sensor_idで正確にマップして、インデックスズレを防止
+                    sensorsData.sensors.forEach((sensor) => {
+                        // data-sensor-id属性で正確にマッピング（テキスト検索より信頼性高い）
+                        const cardEl = sensorsGrid.querySelector(`[data-sensor-id="${escapeHtml(sensor.sensor_id)}"]`);
+                        
+                        if (cardEl) {
+                            const tempEl = cardEl.querySelector('.temp-display');
                             if (tempEl) {
                                 const newTemp = `${sensor.temperature.toFixed(1)}°C`;
                                 // 値が変更された場合のみ更新（不要なDOM操作を削減）
@@ -1208,7 +1217,7 @@
                                 }
                             }
                             // 最終更新時刻を更新（変更があった場合のみ）
-                            const updateEl = cards[i].querySelector('.sensor-info p:nth-child(2)');
+                            const updateEl = cardEl.querySelector('.sensor-info p:nth-child(2)');
                             if (updateEl && sensor.timestamp) {
                                 const timestamp = new Date(sensor.timestamp);
                                 const timeStr = timestamp.toLocaleString('ja-JP', {
