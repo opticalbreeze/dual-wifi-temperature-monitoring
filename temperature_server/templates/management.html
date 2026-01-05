@@ -230,24 +230,57 @@
             }
         }
 
+        // HTMLエスケープ関数
+        function escapeHtml(text) {
+            if (text == null || text === undefined) {
+                return '';
+            }
+            const div = document.createElement('div');
+            div.textContent = String(text);
+            return div.innerHTML;
+        }
+        
         async function refreshSensors() {
             try {
                 const res = await fetch('/api/sensors');
                 const data = await res.json();
+                const container = document.getElementById('sensors-content');
+                
+                if (!data.sensors || data.sensors.length === 0) {
+                    container.innerHTML = '<div class="error-msg">センサーが接続されていません</div>';
+                    return;
+                }
+                
                 let html = '';
                 data.sensors.forEach(sensor => {
+                    const sensorId = escapeHtml(sensor.sensor_id);
+                    const sensorName = escapeHtml(sensor.sensor_name || sensor.sensor_id);
+                    const temp = sensor.temperature ? sensor.temperature.toFixed(1) : '-';
+                    const timestamp = sensor.timestamp ? new Date(sensor.timestamp).toLocaleString('ja-JP') : '-';
+                    
                     html += `
-                        <div class="sensor-card">
-                            <strong>${sensor.sensor_name || sensor.sensor_id}</strong>
-                            <input type="text" placeholder="センサー名" value="${sensor.sensor_name || ''}" onchange="updateSensorName('${sensor.sensor_id}', this.value)">
-                            <div><small>ID: ${sensor.sensor_id} | 温度: ${sensor.temperature}°C | 更新: ${new Date(sensor.timestamp).toLocaleString('ja-JP')}</small></div>
-                            <button class="btn-danger btn-small" onclick="deleteSensor('${sensor.sensor_id}')">削除</button>
+                        <div class="sensor-card" data-sensor-id="${sensorId}">
+                            <strong>${sensorName}</strong>
+                            <input type="text" placeholder="センサー名" value="${escapeHtml(sensor.sensor_name || '')}" onchange="updateSensorName('${sensorId}', this.value)">
+                            <div><small>ID: ${sensorId} | 温度: ${temp}°C | 更新: ${timestamp}</small></div>
+                            <button class="btn-danger btn-small delete-sensor-btn" data-sensor-id="${sensorId}">削除</button>
                         </div>
                     `;
                 });
-                document.getElementById('sensors-content').innerHTML = html || '<div class="error-msg">センサーが接続されていません</div>';
+                
+                container.innerHTML = html;
+                
+                // 削除ボタンのイベントリスナーを追加
+                container.querySelectorAll('.delete-sensor-btn').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const sensorId = this.getAttribute('data-sensor-id');
+                        if (sensorId) {
+                            deleteSensor(sensorId);
+                        }
+                    });
+                });
             } catch (e) {
-                document.getElementById('sensors-content').innerHTML = '<div class="error-msg">エラー: ' + e.message + '</div>';
+                document.getElementById('sensors-content').innerHTML = '<div class="error-msg">エラー: ' + escapeHtml(e.message) + '</div>';
             }
         }
 
@@ -276,8 +309,17 @@
                     body: JSON.stringify({ days_old: parseInt(days) })
                 });
                 const data = await res.json();
-                const msg = `<div class="success-msg">✓ ${data.deleted_count}件を削除しました</div>`;
-                document.getElementById('data-message').innerHTML = msg;
+                
+                // レスポンスのチェック
+                if (res.ok && data.status === 'success') {
+                    const deletedCount = data.deleted_count || 0;
+                    const msg = `<div class="success-msg">✓ ${deletedCount}件を削除しました</div>`;
+                    document.getElementById('data-message').innerHTML = msg;
+                } else {
+                    const errorMsg = data.message || '削除に失敗しました';
+                    const msg = `<div class="error-msg">✗ エラー: ${errorMsg}</div>`;
+                    document.getElementById('data-message').innerHTML = msg;
+                }
             } catch (e) {
                 const msg = `<div class="error-msg">✗ エラー: ${e.message}</div>`;
                 document.getElementById('data-message').innerHTML = msg;
@@ -289,19 +331,41 @@
                 const res = await fetch('/api/sensors');
                 const data = await res.json();
                 const testSensors = data.sensors.filter(s => s.sensor_id.includes('TEST'));
+                const container = document.getElementById('test-sensors-content');
+                
+                if (!testSensors || testSensors.length === 0) {
+                    container.innerHTML = '<div class="error-msg">テストセンサーなし</div>';
+                    return;
+                }
+                
                 let html = '';
                 testSensors.forEach(sensor => {
+                    const sensorId = escapeHtml(sensor.sensor_id);
+                    const sensorName = escapeHtml(sensor.sensor_name || sensor.sensor_id);
+                    const temp = sensor.temperature ? sensor.temperature.toFixed(1) : '-';
+                    
                     html += `
-                        <div class="sensor-card">
-                            <strong>${sensor.sensor_name || sensor.sensor_id}</strong>
-                            <div>${sensor.temperature}°C</div>
-                            <button class="btn-danger btn-small" onclick="deleteTestSensor('${sensor.sensor_id}')">削除</button>
+                        <div class="sensor-card" data-sensor-id="${sensorId}">
+                            <strong>${sensorName}</strong>
+                            <div>${temp}°C</div>
+                            <button class="btn-danger btn-small delete-test-sensor-btn" data-sensor-id="${sensorId}">削除</button>
                         </div>
                     `;
                 });
-                document.getElementById('test-sensors-content').innerHTML = html || '<div class="error-msg">テストセンサーなし</div>';
+                
+                container.innerHTML = html;
+                
+                // 削除ボタンのイベントリスナーを追加
+                container.querySelectorAll('.delete-test-sensor-btn').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const sensorId = this.getAttribute('data-sensor-id');
+                        if (sensorId) {
+                            deleteTestSensor(sensorId);
+                        }
+                    });
+                });
             } catch (e) {
-                document.getElementById('test-sensors-content').innerHTML = '<div class="error-msg">エラー: ' + e.message + '</div>';
+                document.getElementById('test-sensors-content').innerHTML = '<div class="error-msg">エラー: ' + escapeHtml(e.message) + '</div>';
             }
         }
 
@@ -336,15 +400,237 @@
             document.getElementById('network-ping').textContent = ping + 'ms';
         }
 
-        function backupDatabase() { alert('バックアップ機能は準備中です'); }
-        function exportCSV() { alert('CSV エクスポート機能は準備中です'); }
-        function exportLogs() { alert('ログエクスポート機能は準備中です'); }
+        async function deleteSensor(id) {
+            if (!id) {
+                console.error('deleteSensor: sensor_id is empty');
+                alert('✗ エラー: センサーIDが指定されていません');
+                return;
+            }
+            
+            console.log('deleteSensor called with id:', id);
+            
+            // まずテストエンドポイントでAPIが動作しているか確認
+            try {
+                const testRes = await fetch('/api/test-delete');
+                const testText = await testRes.text();
+                console.log('Test endpoint response:', testText.substring(0, 200));
+                if (!testRes.ok || !testText.includes('success')) {
+                    console.warn('Test endpoint failed, but continuing...');
+                }
+            } catch (testError) {
+                console.warn('Test endpoint check failed:', testError);
+            }
+            
+            if (!confirm(`センサー ${id} の全データを削除しますか？\nこの操作は取り消せません。`)) {
+                return;
+            }
+            
+            try {
+                const url = `/api/sensors/${encodeURIComponent(id)}`;
+                console.log('DELETE request to:', url);
+                console.log('Full URL:', window.location.origin + url);
+                
+                const res = await fetch(url, {
+                    method: 'DELETE',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                console.log('Response status:', res.status);
+                console.log('Response statusText:', res.statusText);
+                console.log('Response Content-Type:', res.headers.get('Content-Type'));
+                console.log('Response URL:', res.url);
+                
+                // レスポンステキストを先に取得
+                const responseText = await res.text();
+                console.log('Response text length:', responseText.length);
+                console.log('Response text (first 500 chars):', responseText.substring(0, 500));
+                
+                // HTMLが返ってきている場合の処理
+                if (responseText.trim().startsWith('<!') || responseText.includes('<!doctype')) {
+                    console.error('HTML response received instead of JSON');
+                    console.error('Full HTML response:', responseText);
+                    alert(`✗ エラー: APIエンドポイントが見つかりません\n\nサーバーがHTMLページを返しています。\n\n確認事項:\n1. サーバーが再起動されているか\n2. APIエンドポイントが正しく登録されているか\n\n詳細はブラウザのコンソールを確認してください。`);
+                    return;
+                }
+                
+                // Content-Typeを確認
+                const contentType = res.headers.get('Content-Type') || '';
+                if (!contentType.includes('application/json')) {
+                    console.error('Non-JSON response. Content-Type:', contentType);
+                    console.error('Full response:', responseText);
+                    alert(`✗ エラー: サーバーからJSON以外のレスポンスが返されました\nステータス: ${res.status}\nContent-Type: ${contentType}\nURL: ${res.url}\n\n詳細はブラウザのコンソールを確認してください。`);
+                    return;
+                }
+                
+                // JSONパースを試行
+                let data;
+                try {
+                    data = JSON.parse(responseText);
+                } catch (parseError) {
+                    console.error('JSON parse error:', parseError);
+                    console.error('Response text:', responseText);
+                    alert(`✗ エラー: JSONの解析に失敗しました\nステータス: ${res.status}\n\n詳細はブラウザのコンソールを確認してください。`);
+                    return;
+                }
+                
+                console.log('Response data:', data);
+                
+                if (res.ok && data.status === 'success') {
+                    alert(`✓ ${data.deleted_count}件のデータを削除しました`);
+                    refreshSensors();
+                } else {
+                    alert(`✗ エラー: ${data.message || '削除に失敗しました'}`);
+                }
+            } catch (e) {
+                console.error('deleteSensor error:', e);
+                console.error('Error stack:', e.stack);
+                alert(`✗ エラー: ${e.message}\n\n詳細はブラウザのコンソールを確認してください。`);
+            }
+        }
+        
+        async function deleteTestSensor(id) {
+            if (!id) {
+                console.error('deleteTestSensor: sensor_id is empty');
+                alert('✗ エラー: センサーIDが指定されていません');
+                return;
+            }
+            
+            console.log('deleteTestSensor called with id:', id);
+            
+            if (!confirm(`テストセンサー ${id} を削除しますか？`)) {
+                return;
+            }
+            
+            try {
+                const url = `/api/sensors/${encodeURIComponent(id)}`;
+                console.log('DELETE request to:', url);
+                
+                const res = await fetch(url, {
+                    method: 'DELETE'
+                });
+                
+                console.log('Response status:', res.status);
+                
+                const data = await res.json();
+                console.log('Response data:', data);
+                
+                if (res.ok && data.status === 'success') {
+                    alert(`✓ ${data.deleted_count}件のデータを削除しました`);
+                    loadTestSensors();
+                } else {
+                    alert(`✗ エラー: ${data.message || '削除に失敗しました'}`);
+                }
+            } catch (e) {
+                console.error('deleteTestSensor error:', e);
+                alert(`✗ エラー: ${e.message}`);
+            }
+        }
+        
+        function exportCSV() {
+            const hours = prompt('エクスポートする期間を指定してください（時間）\n例: 720 (1ヶ月)', '720');
+            if (!hours || isNaN(hours)) {
+                return;
+            }
+            
+            const sensorId = prompt('特定のセンサーのみエクスポートする場合はセンサーIDを入力してください\n（空欄で全センサー）', '');
+            
+            let url = `/api/export/csv?hours=${hours}`;
+            if (sensorId) {
+                url += `&sensor_id=${encodeURIComponent(sensorId)}`;
+            }
+            
+            // ダウンロードリンクを作成してクリック
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = '';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+        
+        function exportLogs() {
+            const limit = prompt('エクスポートするログ件数を指定してください', '1000');
+            if (!limit || isNaN(limit)) {
+                return;
+            }
+            
+            const level = prompt('フィルタリングするログレベルを指定してください\n（ERROR, WARN, INFO または空欄で全て）', '');
+            
+            let url = `/api/export/logs?limit=${limit}`;
+            if (level) {
+                url += `&level=${encodeURIComponent(level)}`;
+            }
+            
+            // ダウンロードリンクを作成してクリック
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = '';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+        
+        async function backupDatabase() {
+            if (!confirm('データベースのバックアップを作成しますか？')) {
+                return;
+            }
+            
+            try {
+                const res = await fetch('/api/backup');
+                
+                if (res.ok) {
+                    // レスポンスからファイル名を取得
+                    const contentDisposition = res.headers.get('Content-Disposition');
+                    let filename = 'temperature_backup.db';
+                    if (contentDisposition) {
+                        const match = contentDisposition.match(/filename="(.+)"/);
+                        if (match) {
+                            filename = match[1];
+                        }
+                    }
+                    
+                    // Blobとしてダウンロード
+                    const blob = await res.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = filename;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    window.URL.revokeObjectURL(url);
+                    
+                    alert('✓ バックアップを作成しました');
+                } else {
+                    const data = await res.json();
+                    alert(`✗ エラー: ${data.message || 'バックアップ作成に失敗しました'}`);
+                }
+            } catch (e) {
+                alert(`✗ エラー: ${e.message}`);
+            }
+        }
+        
         function updateSensorName(id, name) { console.log('Update:', id, name); }
-        function deleteSensor(id) { if(confirm('削除しますか？')) { console.log('Delete:', id); } }
-        function deleteTestSensor(id) { if(confirm('削除しますか？')) { console.log('Delete:', id); } }
         function addSensor() { alert('センサー追加機能は準備中です'); closeModal('add-sensor-modal'); }
         function addTestSensor() { alert('テストセンサー追加機能は準備中です'); closeModal('add-test-sensor-modal'); }
-        function filterLogs(level) { console.log('Filter:', level); }
+        function filterLogs(level) {
+            // ログを再読み込みしてフィルタリング
+            loadLogs().then(() => {
+                const logs = document.querySelectorAll('#log-content > div');
+                logs.forEach(log => {
+                    if (!level) {
+                        log.style.display = '';
+                    } else {
+                        const levelClass = level === 'error' ? 'log-error' : 
+                                         level === 'warn' ? 'log-warn' : 'log-info';
+                        log.style.display = log.classList.contains(levelClass) ? '' : 'none';
+                    }
+                });
+            });
+        }
 
         // 初期ロード
         window.onload = () => loadStatus();

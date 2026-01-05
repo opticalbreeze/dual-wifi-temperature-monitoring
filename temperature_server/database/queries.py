@@ -294,6 +294,50 @@ class TemperatureQueries:
             finally:
                 conn.close()
 
+    @staticmethod
+    def delete_old_records(days_old=30):
+        """指定日数以前のデータを削除（JSTタイムゾーン）"""
+        with db_lock:
+            conn = get_connection()
+            try:
+                cursor = conn.cursor()
+                since = (datetime.now(JST) - timedelta(days=days_old)).strftime('%Y-%m-%d %H:%M:%S')
+                cursor.execute("DELETE FROM temperatures WHERE timestamp < ?", (since,))
+                deleted = cursor.rowcount
+                conn.commit()
+                return deleted
+            finally:
+                conn.close()
+
+    @staticmethod
+    def delete_test_sensors():
+        """テストセンサーのデータを削除"""
+        with db_lock:
+            conn = get_connection()
+            try:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM temperatures WHERE sensor_id LIKE ?", ('%TEST%',))
+                deleted = cursor.rowcount
+                conn.commit()
+                return deleted
+            finally:
+                conn.close()
+
+    @staticmethod
+    def delete_sensor(sensor_id):
+        """特定センサーのデータを削除"""
+        with db_lock:
+            conn = get_connection()
+            try:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM temperatures WHERE sensor_id = ?", (sensor_id,))
+                deleted = cursor.rowcount
+                conn.commit()
+                return deleted
+            finally:
+                conn.close()
+
+
 class SystemLogQueries:
     
     @staticmethod
@@ -337,36 +381,6 @@ class SystemLogQueries:
                 cursor = conn.cursor()
                 since = (datetime.now(JST) - timedelta(days=days)).isoformat()
                 cursor.execute("DELETE FROM system_logs WHERE timestamp < ?", (since,))
-                deleted = cursor.rowcount
-                conn.commit()
-                return deleted
-            finally:
-                conn.close()
-
-
-    @staticmethod
-    def delete_old_records(days_old=30):
-        """指定日数以前のデータを削除（JSTタイムゾーン）"""
-        with db_lock:
-            conn = get_connection()
-            try:
-                cursor = conn.cursor()
-                since = (datetime.now(JST) - timedelta(days=days_old)).strftime('%Y-%m-%d %H:%M:%S')
-                cursor.execute("DELETE FROM temperatures WHERE timestamp < ?", (since,))
-                deleted = cursor.rowcount
-                conn.commit()
-                return deleted
-            finally:
-                conn.close()
-
-    @staticmethod
-    def delete_test_sensors():
-        """テストセンサーのデータを削除"""
-        with db_lock:
-            conn = get_connection()
-            try:
-                cursor = conn.cursor()
-                cursor.execute("DELETE FROM temperatures WHERE sensor_id LIKE ?", ('%TEST%',))
                 deleted = cursor.rowcount
                 conn.commit()
                 return deleted

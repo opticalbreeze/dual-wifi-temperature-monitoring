@@ -298,7 +298,7 @@
                 <button class="time-range-btn" data-hours="168">1週間</button>
                 <button class="time-range-btn" data-hours="720">1ヶ月</button>
                 <!-- 更新ボタン -->
-                <button id="refresh-btn" class="time-range-btn" onclick="manualRefresh()" title="グラフを手動更新" style="margin-left: auto; background: #f0f0f0; border-color: #999; color: #333;">🔄 更新</button>
+                <button id="refresh-btn" class="refresh-btn" title="グラフを手動更新" style="margin-left: auto; background: #f0f0f0; border-color: #999; color: #333;">🔄 更新</button>
                 <!-- 間引き切り替えボタン（処理が重い場合はこのボタンを削除可能） -->
                 <button id="downsample-toggle-btn" class="downsample-toggle-btn" onclick="toggleDownsampling()">
                     <span id="downsample-status">間引き: OFF</span>
@@ -555,13 +555,22 @@
         
         // 期間選択ボタンのイベント（データ再読み込み）
         document.querySelectorAll('.time-range-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                document.querySelectorAll('.time-range-btn').forEach(b => b.classList.remove('active'));
+            btn.addEventListener('click', function(e) {
+                // 更新ボタンは除外
+                if (this.id === 'refresh-btn') {
+                    return;
+                }
+                
+                document.querySelectorAll('.time-range-btn').forEach(b => {
+                    if (b.id !== 'refresh-btn') {
+                        b.classList.remove('active');
+                    }
+                });
                 this.classList.add('active');
                 const newHours = parseFloat(this.dataset.hours);
                 
                 // 期間が変更された場合のみデータを再読み込み
-                if (newHours !== currentHours) {
+                if (!isNaN(newHours) && newHours !== currentHours) {
                     currentHours = newHours;
                     formatLabelCache.clear(); // LRUキャッシュをクリア
                     
@@ -1367,6 +1376,16 @@
         initChart();
         updateDownsamplingButton(); // ボタンの初期状態を設定
         
+        // 更新ボタンのイベントリスナーを設定
+        const refreshBtn = document.getElementById('refresh-btn');
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                manualRefresh();
+            });
+        }
+        
         // 初期読み込み（プログレッシブローディング：センサーカードを先に表示）
         let isInitializing = true;
         (async () => {
@@ -1448,18 +1467,28 @@
         }, 10000);  // 初期化後10秒から開始
         
         // 手動更新ボタンの処理
-        function manualRefresh() {
+        async function manualRefresh() {
             const btn = document.getElementById('refresh-btn');
+            if (!btn) return;
+            
+            // 既に更新中の場合は何もしない
+            if (btn.disabled) {
+                return;
+            }
+            
             btn.disabled = true;
             btn.textContent = '⏳ 更新中...';
             
-            debouncedUpdateChart().then(() => {
+            try {
+                // 現在の期間を維持してグラフを更新
+                await updateChart();
                 btn.disabled = false;
                 btn.textContent = '🔄 更新';
-            }).catch(() => {
+            } catch (error) {
+                console.error('手動更新エラー:', error);
                 btn.disabled = false;
                 btn.textContent = '🔄 更新';
-            });
+            }
         }
     </script>
 </body>

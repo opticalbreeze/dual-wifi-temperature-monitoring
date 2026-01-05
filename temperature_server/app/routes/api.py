@@ -4,6 +4,7 @@ from datetime import datetime
 import sys
 import uuid
 import subprocess
+import io
 from pathlib import Path
 
 # パス設定
@@ -384,6 +385,295 @@ def get_dashboard_combined():
         return jsonify({
             "status": "error",
             "message": str(e),
+            "request_id": request_id
+        }), 500
+
+
+@api_bp.route('/test-delete', methods=['GET'])
+def test_delete_endpoint():
+    """削除エンドポイントのテスト用"""
+    from flask import current_app
+    
+    logger.info("=" * 80)
+    logger.info("===== TEST DELETE ENDPOINT CALLED =====")
+    logger.info(f"Request path: {request.path}")
+    logger.info(f"Request URL: {request.url}")
+    
+    # 登録されたルートを取得
+    routes = []
+    try:
+        for rule in current_app.url_map.iter_rules():
+            routes.append(f"{list(rule.methods)} {rule.rule}")
+        logger.info(f"Registered routes ({len(routes)} total):")
+        for route in routes:
+            logger.info(f"  {route}")
+    except Exception as e:
+        logger.error(f"Error getting routes: {e}")
+    
+    logger.info("===== TEST DELETE ENDPOINT END =====")
+    logger.info("=" * 80)
+    
+    return jsonify({
+        "status": "success",
+        "message": "DELETE endpoint is accessible",
+        "endpoint": "/api/sensors/<sensor_id>",
+        "test_time": datetime.now().isoformat(),
+        "registered_routes": routes[:20]  # 最初の20件のみ
+    })
+
+@api_bp.route('/routes', methods=['GET'])
+def list_routes():
+    """登録されたルート一覧を返す（デバッグ用）"""
+    from flask import current_app
+    
+    routes = []
+    for rule in current_app.url_map.iter_rules():
+        if rule.rule.startswith('/api'):
+            routes.append({
+                "methods": list(rule.methods),
+                "rule": rule.rule,
+                "endpoint": rule.endpoint
+            })
+    
+    return jsonify({
+        "status": "success",
+        "api_routes": routes,
+        "total": len(routes)
+    })
+
+@api_bp.route('/sensors/<sensor_id>', methods=['DELETE'])
+def delete_sensor(sensor_id):
+    """特定センサーのデータを削除"""
+    request_id = str(uuid.uuid4())[:8]
+    
+    try:
+        logger.info("=" * 80)
+        logger.info(f"[{request_id}] ===== DELETE /api/sensors/{sensor_id} =====")
+        logger.info(f"[{request_id}] Request path: {request.path}")
+        logger.info(f"[{request_id}] Request URL: {request.url}")
+        logger.info(f"[{request_id}] Request method: {request.method}")
+        logger.info(f"[{request_id}] Sensor ID (raw): {sensor_id}")
+        
+        # センサーIDのデコード（URLエンコードされた場合）
+        import urllib.parse
+        sensor_id_decoded = urllib.parse.unquote(sensor_id)
+        logger.info(f"[{request_id}] Sensor ID (decoded): {sensor_id_decoded}")
+        
+        logger.info(f"[{request_id}] Calling TemperatureQueries.delete_sensor()...")
+        deleted_count = TemperatureQueries.delete_sensor(sensor_id_decoded)
+        logger.info(f"[{request_id}] ✅ センサー {sensor_id_decoded} のデータ {deleted_count}件を削除")
+        
+        response_data = {
+            "status": "success",
+            "sensor_id": sensor_id_decoded,
+            "deleted_count": deleted_count,
+            "message": f"センサー {sensor_id_decoded} のデータ {deleted_count}件を削除しました",
+            "request_id": request_id
+        }
+        
+        logger.info(f"[{request_id}] Response data: {response_data}")
+        logger.info(f"[{request_id}] ===== DELETE END =====")
+        logger.info("=" * 80)
+        
+        return jsonify(response_data), 200
+    
+    except Exception as e:
+        logger.error("=" * 80)
+        logger.error(f"[{request_id}] ❌ センサー削除エラー: {e}", exc_info=True)
+        logger.error(f"[{request_id}] Error type: {type(e).__name__}")
+        logger.error(f"[{request_id}] Error args: {e.args}")
+        logger.error(f"[{request_id}] ===== DELETE ERROR END =====")
+        logger.error("=" * 80)
+        
+        return jsonify({
+            "status": "error",
+            "error_code": "DELETE_ERROR",
+            "message": f"センサー削除に失敗しました: {str(e)}",
+            "request_id": request_id,
+            "error_type": type(e).__name__
+        }), 500
+
+
+@api_bp.route('/export/csv', methods=['GET'])
+def export_csv():
+    """温度データをCSV形式でエクスポート"""
+    request_id = str(uuid.uuid4())[:8]
+    
+    try:
+        import csv
+        import io
+        from flask import Response
+        
+        hours = request.args.get('hours', 720, type=float)  # デフォルト1ヶ月
+        sensor_id = request.args.get('sensor_id', None)
+        
+        logger.info(f"[{request_id}] GET /api/export/csv - hours={hours}, sensor_id={sensor_id}")
+        
+        # データ取得
+        if sensor_id:
+            readings = TemperatureQueries.get_range(sensor_id, hours)
+        else:
+            # 全センサーのデータを取得
+            sensors = TemperatureQueries.get_all_latest()
+            all_readings = []
+            for sensor in sensors:
+                readings = TemperatureQueries.get_range(sensor['sensor_id'], hours)
+                all_readings.extend(readings)
+            readings = all_readings
+        
+        # CSV生成
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # ヘッダー
+        writer.writerow(['センサーID', 'センサー名', '温度 (°C)', '湿度 (%)', 'RSSI (dBm)', 'バッテリー', '接続タイプ', 'タイムスタンプ'])
+        
+        # データ行
+        for reading in readings:
+            writer.writerow([
+                reading.get('sensor_id', ''),
+                reading.get('sensor_name', ''),
+                reading.get('temperature', ''),
+                reading.get('humidity', ''),
+                reading.get('rssi', ''),
+                'バッテリー' if reading.get('battery_mode') else 'AC',
+                reading.get('connection_type', ''),
+                reading.get('timestamp', '')
+            ])
+        
+        # レスポンス生成
+        output.seek(0)
+        filename = f"temperature_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        
+        return Response(
+            output.getvalue(),
+            mimetype='text/csv',
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"',
+                'Content-Type': 'text/csv; charset=utf-8'
+            }
+        )
+    
+    except Exception as e:
+        logger.error(f"[{request_id}] ❌ CSVエクスポートエラー: {e}", exc_info=True)
+        return jsonify({
+            "status": "error",
+            "error_code": "EXPORT_ERROR",
+            "message": f"CSVエクスポートに失敗しました: {str(e)}",
+            "request_id": request_id
+        }), 500
+
+
+@api_bp.route('/export/logs', methods=['GET'])
+def export_logs():
+    """システムログをテキスト形式でエクスポート"""
+    request_id = str(uuid.uuid4())[:8]
+    
+    try:
+        from flask import Response
+        
+        limit = request.args.get('limit', 1000, type=int)
+        level = request.args.get('level', None)  # ERROR, WARN, INFO
+        
+        logger.info(f"[{request_id}] GET /api/export/logs - limit={limit}, level={level}")
+        
+        # ログ取得
+        logs = SystemLogQueries.get_recent_logs(limit)
+        
+        # レベルフィルタリング
+        if level:
+            logs = [log for log in logs if log.get('level') == level.upper()]
+        
+        # テキスト生成
+        output = io.StringIO()
+        output.write(f"システムログエクスポート\n")
+        output.write(f"エクスポート日時: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        output.write(f"件数: {len(logs)}\n")
+        output.write("=" * 80 + "\n\n")
+        
+        for log in logs:
+            timestamp = log.get('timestamp', '')
+            log_level = log.get('level', 'INFO')
+            message = log.get('message', '')
+            module = log.get('module', '')
+            
+            output.write(f"[{timestamp}] [{log_level}] [{module}] {message}\n")
+        
+        # レスポンス生成
+        output.seek(0)
+        filename = f"system_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        
+        return Response(
+            output.getvalue(),
+            mimetype='text/plain',
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"',
+                'Content-Type': 'text/plain; charset=utf-8'
+            }
+        )
+    
+    except Exception as e:
+        logger.error(f"[{request_id}] ❌ ログエクスポートエラー: {e}", exc_info=True)
+        return jsonify({
+            "status": "error",
+            "error_code": "EXPORT_ERROR",
+            "message": f"ログエクスポートに失敗しました: {str(e)}",
+            "request_id": request_id
+        }), 500
+
+
+@api_bp.route('/backup', methods=['GET'])
+def backup_database():
+    """データベースのバックアップを作成"""
+    request_id = str(uuid.uuid4())[:8]
+    
+    try:
+        import shutil
+        from flask import Response
+        from pathlib import Path
+        from config import Config
+        
+        logger.info(f"[{request_id}] GET /api/backup")
+        
+        # データベースファイルのパス
+        db_path = Path(Config.DATA_DIR) / "temperature.db"
+        
+        if not db_path.exists():
+            return jsonify({
+                "status": "error",
+                "error_code": "FILE_NOT_FOUND",
+                "message": "データベースファイルが見つかりません",
+                "request_id": request_id
+            }), 404
+        
+        # バックアップファイル名
+        backup_filename = f"temperature_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+        backup_path = Path(Config.DATA_DIR) / backup_filename
+        
+        # データベースをコピー
+        shutil.copy2(db_path, backup_path)
+        
+        logger.info(f"[{request_id}] ✅ バックアップ作成完了: {backup_path}")
+        
+        # ファイルをレスポンスとして返す
+        with open(backup_path, 'rb') as f:
+            backup_data = f.read()
+        
+        return Response(
+            backup_data,
+            mimetype='application/octet-stream',
+            headers={
+                'Content-Disposition': f'attachment; filename="{backup_filename}"',
+                'Content-Type': 'application/octet-stream'
+            }
+        )
+    
+    except Exception as e:
+        logger.error(f"[{request_id}] ❌ バックアップ作成エラー: {e}", exc_info=True)
+        return jsonify({
+            "status": "error",
+            "error_code": "BACKUP_ERROR",
+            "message": f"バックアップ作成に失敗しました: {str(e)}",
             "request_id": request_id
         }), 500
 
